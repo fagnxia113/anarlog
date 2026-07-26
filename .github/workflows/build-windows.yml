@@ -109,14 +109,15 @@ jobs:
         run: |
           $vcDir = &"${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
           $msvcDir = Get-ChildItem "$vcDir\VC\Redist\MSVC" | Sort-Object -Descending | Select-Object -First 1
-          $x64Dir = "$($msvcDir.FullName)\x64\Microsoft.VC143.CRT"
-          Write-Host "Copying VC runtime from: $x64Dir"
+          $crtDir = Get-ChildItem "$($msvcDir.FullName)\x64" -Directory | Where-Object { Test-Path "$($_.FullName)\msvcp140.dll" } | Select-Object -First 1
+          if (-not $crtDir) { throw "Cannot find VC runtime CRT directory with msvcp140.dll under $($msvcDir.FullName)\x64" }
+          Write-Host "Copying VC runtime from: $($crtDir.FullName)"
           $destDir = "apps/desktop/src-tauri/resources/vcrt"
           New-Item -ItemType Directory -Force -Path $destDir | Out-Null
-          Copy-Item "$x64Dir\msvcp140.dll" $destDir
-          Copy-Item "$x64Dir\msvcp140_1.dll" $destDir -ErrorAction SilentlyContinue
-          Copy-Item "$x64Dir\vcruntime140.dll" $destDir
-          Copy-Item "$x64Dir\vcruntime140_1.dll" $destDir
+          Copy-Item "$($crtDir.FullName)\msvcp140.dll" $destDir
+          Copy-Item "$($crtDir.FullName)\msvcp140_1.dll" $destDir -ErrorAction SilentlyContinue
+          Copy-Item "$($crtDir.FullName)\vcruntime140.dll" $destDir
+          Copy-Item "$($crtDir.FullName)\vcruntime140_1.dll" $destDir
           Get-ChildItem $destDir | ForEach-Object { Write-Host "  $($_.Name)" }
 
       - name: Build Tauri app (Windows)
