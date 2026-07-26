@@ -104,37 +104,11 @@ jobs:
       - name: Build frontend
         run: pnpm -F @hypr/desktop build
 
-      - name: Copy VC runtime DLLs
-        shell: pwsh
-        run: |
-          $destDir = "apps/desktop/src-tauri/resources/vcrt"
-          New-Item -ItemType Directory -Force -Path $destDir | Out-Null
-
-          # The DLLs are in the system32 directory on windows-latest runners
-          # because VC++ Redistributable is pre-installed
-          $sys32 = "${env:windir}\System32"
-          $dlls = @("msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll")
-          $found = $true
-          foreach ($dll in $dlls) {
-            $src = Join-Path $sys32 $dll
-            if (Test-Path $src) {
-              Copy-Item $src $destDir
-              Write-Host "Copied: $dll"
-            } else {
-              Write-Host "NOT found: $dll in $sys32"
-              $found = $false
-            }
-          }
-
-          if (-not $found) { throw "Cannot find VC runtime DLLs in $sys32" }
-          Write-Host "Bundled VC runtime DLLs:"
-          Get-ChildItem $destDir | ForEach-Object { Write-Host "  $($_.Name)" }
-
       - name: Build Tauri app (Windows)
         working-directory: apps/desktop
         run: pnpm tauri build --ci --no-sign --verbose
         env:
-          STATIC_VCRUNTIME: "true"
+          RUSTFLAGS: "-C target-feature=+crt-static"
           POSTHOG_API_KEY: phc_windows_ci
           VITE_POSTHOG_API_KEY: phc_windows_ci
           SENTRY_DSN: ${{ secrets.SENTRY_DSN_HYPRNOTE_2 }}

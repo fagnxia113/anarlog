@@ -3,9 +3,6 @@
   "bundle": {
     "targets": ["msi", "nsis"],
     "createUpdaterArtifacts": false,
-    "resources": {
-      "resources/vcrt/*": "."
-    },
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
