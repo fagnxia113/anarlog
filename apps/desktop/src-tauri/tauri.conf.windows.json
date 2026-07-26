@@ -13,8 +13,7 @@
         "language": "en-US"
       },
       "webviewInstallMode": {
-        "type": "silent",
-        "silent": true
+        "type": "downloadBootstrapper"
       }
     }
   }
