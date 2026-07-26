@@ -1,0 +1,164 @@
+name: Build Windows App
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/desktop/**"
+      - "plugins/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - "rust-toolchain.toml"
+      - ".github/workflows/build-windows.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "apps/desktop/**"
+      - "plugins/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+      - "rust-toolchain.toml"
+      - ".github/workflows/build-windows.yml"
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: pwsh
+        run: |
+          $storePath = pnpm store path
+          "STORE_PATH=$storePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install pnpm dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.94.0"
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/desktop/src-tauri/target/release
+            apps/desktop/src-tauri/target/*.json
+          key: ${{ runner.os }}-cargo-build-desktop-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-desktop-
+
+      - name: Build frontend
+        run: pnpm -F @hypr/desktop build
+
+      - name: Build Tauri app (Windows)
+        working-directory: apps/desktop
+        run: pnpm tauri build --config ./src-tauri/tauri.conf.json --config ./src-tauri/tauri.conf.windows.json
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: List build artifacts
+        shell: pwsh
+        run: |
+          Write-Host "=== Bundle directory ==="
+          Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle" -Recurse -ErrorAction SilentlyContinue | Select-Object FullName, Length
+
+      - name: Find MSI installer
+        id: find-msi
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($msi) {
+            Write-Host "Found MSI: $($msi.FullName)"
+            "msi_path=$($msi.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            "msi_name=$($msi.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          } else {
+            Write-Host "No MSI found"
+          }
+
+      - name: Find NSIS installer
+        id: find-nsis
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($exe) {
+            Write-Host "Found NSIS EXE: $($exe.FullName)"
+            "exe_path=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            "exe_name=$($exe.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          } else {
+            Write-Host "No NSIS EXE found"
+          }
+
+      - name: Upload MSI installer
+        if: steps.find-msi.outputs.msi_path
+        uses: actions/upload-artifact@v4
+        with:
+          name: anarlog-windows-msi
+          path: ${{ steps.find-msi.outputs.msi_path }}
+
+      - name: Upload NSIS installer
+        if: steps.find-nsis.outputs.exe_path
+        uses: actions/upload-artifact@v4
+        with:
+          name: anarlog-windows-nsis
+          path: ${{ steps.find-nsis.outputs.exe_path }}
+
+      - name: Upload updater artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: anarlog-windows-updater
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/msi/*.sig
+            apps/desktop/src-tauri/target/release/bundle/msi/*.zip
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.sig
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.zip
+          if-no-files-found: ignore
