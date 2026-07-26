@@ -106,7 +106,7 @@ jobs:
 
       - name: Build Tauri app (Windows)
         working-directory: apps/desktop
-        run: pnpm tauri build --ci --no-sign --verbose
+        run: pnpm tauri build --ci --no-sign --verbose --config ./src-tauri/tauri.windows.conf.json
         env:
           RUSTFLAGS: "-C target-feature=+crt-static"
           POSTHOG_API_KEY: phc_windows_ci
@@ -123,6 +123,12 @@ jobs:
         run: |
           Write-Host "=== Bundle directory ==="
           Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle" -Recurse -ErrorAction SilentlyContinue | Select-Object FullName, Length
+          Write-Host ""
+          Write-Host "=== Checking DLLs in NSIS output ==="
+          $nsisDir = "apps/desktop/src-tauri/target/release/bundle/nsis"
+          if (Test-Path $nsisDir) {
+            Get-ChildItem -Path $nsisDir -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  DLL: $($_.FullName)" }
+          }
 
       - name: Find MSI installer
         id: find-msi
