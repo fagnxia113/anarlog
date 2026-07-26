@@ -110,48 +110,23 @@ jobs:
           $destDir = "apps/desktop/src-tauri/resources/vcrt"
           New-Item -ItemType Directory -Force -Path $destDir | Out-Null
 
-          # Try system VCRedist first (installed on windows-latest runners)
-          $sysDirs = @(
-            "${env:ProgramFiles}\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC",
-            "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\VC\Redist\MSVC",
-            "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community\VC\Redist\MSVC"
-          )
-          $found = $false
-          foreach ($base in $sysDirs) {
-            if (-not (Test-Path $base)) { continue }
-            $dll = Get-ChildItem $base -Recurse -Filter "msvcp140.dll" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "\\\\x64" } | Select-Object -First 1
-            if ($dll) {
-              $crtDir = $dll.DirectoryName
-              Write-Host "Found VC runtime at: $crtDir"
-              Copy-Item "$crtDir\msvcp140.dll" $destDir
-              Copy-Item "$crtDir\msvcp140_1.dll" $destDir -ErrorAction SilentlyContinue
-              Copy-Item "$crtDir\vcruntime140.dll" $destDir
-              Copy-Item "$crtDir\vcruntime140_1.dll" $destDir
-              $found = $true
-              break
+          # The DLLs are in the system32 directory on windows-latest runners
+          # because VC++ Redistributable is pre-installed
+          $sys32 = "${env:windir}\System32"
+          $dlls = @("msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+          $found = $true
+          foreach ($dll in $dlls) {
+            $src = Join-Path $sys32 $dll
+            if (Test-Path $src) {
+              Copy-Item $src $destDir
+              Write-Host "Copied: $dll"
+            } else {
+              Write-Host "NOT found: $dll in $sys32"
+              $found = $false
             }
           }
 
-          if (-not $found) {
-            # Fallback: download from Microsoft
-            Write-Host "Downloading VC Redistributable..."
-            $installerPath = "$env:TEMP\vc_redist.x64.exe"
-            Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $installerPath
-            $extractDir = "$env:TEMP\vcrt_extract"
-            New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
-            Start-Process -FilePath $installerPath -ArgumentList "/install /quiet /extract:$extractDir" -Wait
-            $dll = Get-ChildItem $extractDir -Recurse -Filter "msvcp140.dll" | Select-Object -First 1
-            if ($dll) {
-              $crtDir = $dll.DirectoryName
-              Copy-Item "$crtDir\msvcp140.dll" $destDir
-              Copy-Item "$crtDir\msvcp140_1.dll" $destDir -ErrorAction SilentlyContinue
-              Copy-Item "$crtDir\vcruntime140.dll" $destDir
-              Copy-Item "$crtDir\vcruntime140_1.dll" $destDir
-              $found = $true
-            }
-          }
-
-          if (-not $found) { throw "Cannot find VC runtime DLLs" }
+          if (-not $found) { throw "Cannot find VC runtime DLLs in $sys32" }
           Write-Host "Bundled VC runtime DLLs:"
           Get-ChildItem $destDir | ForEach-Object { Write-Host "  $($_.Name)" }
 
