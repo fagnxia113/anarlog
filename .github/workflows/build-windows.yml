@@ -106,7 +106,7 @@ jobs:
 
       - name: Build Tauri app (Windows)
         working-directory: apps/desktop
-        run: pnpm tauri build --config ./src-tauri/tauri.conf.json --config ./src-tauri/tauri.conf.windows.json
+        run: pnpm tauri build --no-sign --config ./src-tauri/tauri.conf.json --config ./src-tauri/tauri.conf.windows.json
         env:
           POSTHOG_API_KEY: phc_windows_ci
           VITE_POSTHOG_API_KEY: phc_windows_ci
@@ -116,8 +116,6 @@ jobs:
           VITE_APP_URL: https://anarlog.so
           VITE_API_URL: https://api.anarlog.so
           VITE_PRO_PRODUCT_ID: ${{ secrets.VITE_PRO_PRODUCT_ID }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: List build artifacts
         shell: pwsh
@@ -164,14 +162,4 @@ jobs:
         with:
           name: anarlog-windows-nsis
           path: ${{ steps.find-nsis.outputs.exe_path }}
-
-      - name: Upload updater artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: anarlog-windows-updater
-          path: |
-            apps/desktop/src-tauri/target/release/bundle/msi/*.sig
-            apps/desktop/src-tauri/target/release/bundle/msi/*.zip
-            apps/desktop/src-tauri/target/release/bundle/nsis/*.sig
-            apps/desktop/src-tauri/target/release/bundle/nsis/*.zip
-          if-no-files-found: ignore
+          if-no-files-found: error
