@@ -1,5 +1,7 @@
 import { platform } from "@tauri-apps/plugin-os";
 
+import { env } from "~/env";
+
 import type { SectionStatus } from "./shared";
 
 export type OnboardingStep =
@@ -17,7 +19,13 @@ const STEPS_MACOS: OnboardingStep[] = [
 ];
 const STEPS_OTHER: OnboardingStep[] = ["login", "calendar", "final"];
 
+const STEPS_OFFLINE: OnboardingStep[] = ["final"];
+
 function getOnboardingSteps(): OnboardingStep[] {
+  const hasSupabase = !!(env.VITE_SUPABASE_URL && env.VITE_SUPABASE_ANON_KEY);
+  if (!hasSupabase) {
+    return STEPS_OFFLINE;
+  }
   return platform() === "macos" ? STEPS_MACOS : STEPS_OTHER;
 }
 

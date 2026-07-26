@@ -23,8 +23,11 @@ import { PermissionsSection } from "./permissions";
 import { OnboardingSection } from "./shared";
 
 import { useAuth } from "~/auth";
+import { env } from "~/env";
 import { StandaloneWindowShell } from "~/shared/window-shell";
 import { type Tab, useTabs } from "~/store/zustand/tabs";
+
+const hasSupabase = !!(env.VITE_SUPABASE_URL && env.VITE_SUPABASE_ANON_KEY);
 
 export function TabContentOnboarding({
   tab: _tab,
@@ -232,56 +235,60 @@ function OnboardingScreenContent({
             <PermissionsSection onContinue={goNext} />
           </OnboardingSection>
 
-          <OnboardingSection
-            title={<Trans>Create account</Trans>}
-            description={
-              <Trans>
-                Sign in to unlock powerful AI models, sync across devices, and
-                personalization.
-              </Trans>
-            }
-            completedTitle={
-              auth.session ? (
-                <Trans>Signed in</Trans>
-              ) : didSkipLogin ? (
-                <Trans>Skipped</Trans>
-              ) : (
-                <Trans>Account</Trans>
-              )
-            }
-            status={getStepStatus("login", currentStep)}
-            onBack={goBack}
-            onNext={goNext}
-            onSkip={() => {
-              setDidSkipLogin(true);
-              void analyticsCommands.event({
-                event: "onboarding_login_skipped",
-              });
-            }}
-          >
-            <LoginSection
-              onContinue={goNext}
-              onSkip={() => setDidSkipLogin(true)}
-            />
-          </OnboardingSection>
+          {hasSupabase && (
+            <OnboardingSection
+              title={<Trans>Create account</Trans>}
+              description={
+                <Trans>
+                  Sign in to unlock powerful AI models, sync across devices, and
+                  personalization.
+                </Trans>
+              }
+              completedTitle={
+                auth.session ? (
+                  <Trans>Signed in</Trans>
+                ) : didSkipLogin ? (
+                  <Trans>Skipped</Trans>
+                ) : (
+                  <Trans>Account</Trans>
+                )
+              }
+              status={getStepStatus("login", currentStep)}
+              onBack={goBack}
+              onNext={goNext}
+              onSkip={() => {
+                setDidSkipLogin(true);
+                void analyticsCommands.event({
+                  event: "onboarding_login_skipped",
+                });
+              }}
+            >
+              <LoginSection
+                onContinue={goNext}
+                onSkip={() => setDidSkipLogin(true)}
+              />
+            </OnboardingSection>
+          )}
 
-          <OnboardingSection
-            title={<Trans>Connect calendar</Trans>}
-            description={
-              <Trans>
-                Anarlog will sync your calendar to get meeting reminders
-              </Trans>
-            }
-            completedTitle={<Trans>Calendar connected</Trans>}
-            status={getStepStatus("calendar", currentStep)}
-            onBack={goBack}
-            onNext={goNext}
-          >
-            <CalendarSection
-              onContinue={goNext}
-              onSignIn={handleCalendarSignIn}
-            />
-          </OnboardingSection>
+          {hasSupabase && (
+            <OnboardingSection
+              title={<Trans>Connect calendar</Trans>}
+              description={
+                <Trans>
+                  Anarlog will sync your calendar to get meeting reminders
+                </Trans>
+              }
+              completedTitle={<Trans>Calendar connected</Trans>}
+              status={getStepStatus("calendar", currentStep)}
+              onBack={goBack}
+              onNext={goNext}
+            >
+              <CalendarSection
+                onContinue={goNext}
+                onSignIn={handleCalendarSignIn}
+              />
+            </OnboardingSection>
+          )}
 
           <OnboardingSection
             title={<Trans>Storage</Trans>}
