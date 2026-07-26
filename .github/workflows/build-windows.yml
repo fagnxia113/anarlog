@@ -104,6 +104,26 @@ jobs:
       - name: Build frontend
         run: pnpm -F @hypr/desktop build
 
+      - name: Copy VC runtime DLLs
+        shell: pwsh
+        run: |
+          $destDir = "apps/desktop/src-tauri/resources/vcrt"
+          New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+          $sys32 = "${env:windir}\System32"
+          $dlls = @("msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+          foreach ($dll in $dlls) {
+            $src = Join-Path $sys32 $dll
+            if (Test-Path $src) {
+              Copy-Item $src $destDir
+              Write-Host "Copied: $dll"
+            } else {
+              Write-Host "NOT found: $dll in $sys32"
+              throw "Cannot find $dll"
+            }
+          }
+          Write-Host "Bundled VC runtime DLLs:"
+          Get-ChildItem $destDir | ForEach-Object { Write-Host "  $($_.Name)" }
+
       - name: Build Tauri app (Windows)
         working-directory: apps/desktop
         run: pnpm tauri build --ci --no-sign --verbose --config ./src-tauri/tauri.windows.conf.json
