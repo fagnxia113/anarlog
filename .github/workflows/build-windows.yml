@@ -104,6 +104,21 @@ jobs:
       - name: Build frontend
         run: pnpm -F @hypr/desktop build
 
+      - name: Copy VC runtime DLLs
+        shell: pwsh
+        run: |
+          $vcDir = &"${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $msvcDir = Get-ChildItem "$vcDir\VC\Redist\MSVC" | Sort-Object -Descending | Select-Object -First 1
+          $x64Dir = "$($msvcDir.FullName)\x64\Microsoft.VC143.CRT"
+          Write-Host "Copying VC runtime from: $x64Dir"
+          $destDir = "apps/desktop/src-tauri/resources/vcrt"
+          New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+          Copy-Item "$x64Dir\msvcp140.dll" $destDir
+          Copy-Item "$x64Dir\msvcp140_1.dll" $destDir -ErrorAction SilentlyContinue
+          Copy-Item "$x64Dir\vcruntime140.dll" $destDir
+          Copy-Item "$x64Dir\vcruntime140_1.dll" $destDir
+          Get-ChildItem $destDir | ForEach-Object { Write-Host "  $($_.Name)" }
+
       - name: Build Tauri app (Windows)
         working-directory: apps/desktop
         run: pnpm tauri build --ci --no-sign --verbose
