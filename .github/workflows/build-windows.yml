@@ -108,6 +108,14 @@ jobs:
         working-directory: apps/desktop
         run: pnpm tauri build --config ./src-tauri/tauri.conf.json --config ./src-tauri/tauri.conf.windows.json
         env:
+          POSTHOG_API_KEY: phc_windows_ci
+          VITE_POSTHOG_API_KEY: phc_windows_ci
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN_HYPRNOTE_2 }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_APP_URL: https://anarlog.so
+          VITE_API_URL: https://api.anarlog.so
+          VITE_PRO_PRODUCT_ID: ${{ secrets.VITE_PRO_PRODUCT_ID }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
