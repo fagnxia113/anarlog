@@ -106,8 +106,9 @@ jobs:
 
       - name: Build Tauri app (Windows)
         working-directory: apps/desktop
-        run: pnpm tauri build --ci --no-sign --verbose --config ./src-tauri/tauri.conf.json --config ./src-tauri/tauri.conf.windows.json
+        run: pnpm tauri build --ci --no-sign --verbose
         env:
+          STATIC_VCRUNTIME: "true"
           POSTHOG_API_KEY: phc_windows_ci
           VITE_POSTHOG_API_KEY: phc_windows_ci
           SENTRY_DSN: ${{ secrets.SENTRY_DSN_HYPRNOTE_2 }}
