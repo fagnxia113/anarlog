@@ -27,7 +27,8 @@
       "assetProtocol": {
         "enable": true,
         "scope": ["**/*", "$APPDATA/**"]
-      }
+      },
+      "csp": "default-src 'self'; img-src 'self' data: blob: https://tauri.localhost asset: http://asset.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: http: ipc: http://ipc.localhost"
     }
   },
   "bundle": {
