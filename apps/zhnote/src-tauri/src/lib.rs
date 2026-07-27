@@ -6,6 +6,16 @@ mod stt;
 use db::Db;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
+use tracing::Level;
+use tracing_subscriber::FmtSubscriber;
+
+fn init_logging() {
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::DEBUG)
+        .with_target(false)
+        .finish();
+    let _ = tracing::subscriber::set_global_default(subscriber);
+}
 
 #[tauri::command]
 async fn generate_summary(db: tauri::State<'_, Db>, note_id: String) -> Result<String, String> {
@@ -66,6 +76,9 @@ async fn transcribe_audio(db: tauri::State<'_, Db>, audio_path: String) -> Resul
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    init_logging();
+    tracing::info!("启动 Zhnote...");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -76,19 +89,32 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle().clone();
 
-            let app_data_dir = app_handle
-                .path()
-                .app_data_dir()
-                .expect("failed to get app data dir");
+            let app_data_dir = match app_handle.path().app_data_dir() {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::error!("获取 app_data_dir 失败: {}", e);
+                    let msg = format!("无法获取应用数据目录：{}\n\n应用即将退出。", e);
+                    app_handle
+                        .dialog()
+                        .message(msg)
+                        .title("Zhnote 启动失败")
+                        .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+                        .buttons(tauri_plugin_dialog::MessageDialogButtons::Ok)
+                        .blocking_show();
+                    std::process::exit(1);
+                }
+            };
+            tracing::info!("app_data_dir = {}", app_data_dir.display());
 
             let db = tauri::async_runtime::block_on(db::open_db(app_data_dir));
             match db {
                 Ok(db) => {
+                    tracing::info!("数据库初始化成功");
                     app_handle.manage(db);
                     Ok(())
                 }
                 Err(e) => {
-                    eprintln!("数据库初始化失败: {}", e);
+                    tracing::error!("数据库初始化失败: {}", e);
                     let msg = format!("数据库初始化失败：{}\n\n应用即将退出。", e);
                     app_handle
                         .dialog()

@@ -12,16 +12,16 @@ export const Route = createFileRoute("/settings")({
   component: SettingsPage,
 });
 
-const defaultLlm: LlmConfig = {
+const createDefaultLlm = (): LlmConfig => ({
   base_url: "https://api.openai.com/v1",
   api_key: "",
   model: "gpt-4o-mini",
-};
-const defaultStt: SttConfig = {
+});
+const createDefaultStt = (): SttConfig => ({
   base_url: "https://api.openai.com/v1",
   api_key: "",
   language: "zh",
-};
+});
 
 const inputClass =
   "rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm focus:border-[var(--color-primary)] focus:outline-none";
@@ -50,8 +50,8 @@ function SettingsPage() {
 
   const form = useForm({
     defaultValues: {
-      llm: defaultLlm,
-      stt: defaultStt,
+      llm: createDefaultLlm(),
+      stt: createDefaultStt(),
     },
     onSubmit: async ({ value }) => {
       await api.setSetting("llm_config", JSON.stringify(value.llm));
