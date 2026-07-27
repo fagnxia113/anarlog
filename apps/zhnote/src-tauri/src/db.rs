@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use sqlx::SqlitePool;
+use sqlx::{ConnectOptions, SqlitePool};
 
 #[derive(Clone)]
 pub struct Db(pub Arc<SqlitePool>);

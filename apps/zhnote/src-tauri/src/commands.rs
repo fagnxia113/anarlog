@@ -27,21 +27,19 @@ fn row_to_note(r: sqlx::sqlite::SqliteRow) -> Note {
     }
 }
 
-const SELECT_COLS: &str = "id, title, body, transcript, summary, created_at, updated_at";
-
 pub async fn list_notes_impl(db: &Db) -> anyhow::Result<Vec<Note>> {
-    let rows = sqlx::query(&format!(
-        "SELECT {SELECT_COLS} FROM notes WHERE deleted_at IS NULL ORDER BY updated_at DESC"
-    ))
+    let rows = sqlx::query(
+        "SELECT id, title, body, transcript, summary, created_at, updated_at FROM notes WHERE deleted_at IS NULL ORDER BY updated_at DESC",
+    )
     .fetch_all(db.pool())
     .await?;
     Ok(rows.into_iter().map(row_to_note).collect())
 }
 
 pub async fn get_note_impl(db: &Db, id: &str) -> anyhow::Result<Option<Note>> {
-    let row = sqlx::query(&format!(
-        "SELECT {SELECT_COLS} FROM notes WHERE id = ? AND deleted_at IS NULL"
-    ))
+    let row = sqlx::query(
+        "SELECT id, title, body, transcript, summary, created_at, updated_at FROM notes WHERE id = ? AND deleted_at IS NULL",
+    )
     .bind(id)
     .fetch_optional(db.pool())
     .await?;
