@@ -4,7 +4,7 @@ use tauri::State;
 
 use crate::db::Db;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Note {
     pub id: String,
     pub title: String,
@@ -15,38 +15,8 @@ pub struct Note {
     pub updated_at: String,
 }
 
-#[tauri::command]
-pub async fn list_notes(db: State<'_, Db>) -> Result<Vec<Note>, String> {
-    let rows = sqlx::query("SELECT id, title, body, transcript, summary, created_at, updated_at FROM notes WHERE deleted_at IS NULL ORDER BY updated_at DESC")
-        .fetch_all(db.pool())
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let notes = rows
-        .into_iter()
-        .map(|r| Note {
-            id: r.get("id"),
-            title: r.get("title"),
-            body: r.get("body"),
-            transcript: r.get("transcript"),
-            summary: r.get("summary"),
-            created_at: r.get("created_at"),
-            updated_at: r.get("updated_at"),
-        })
-        .collect();
-
-    Ok(notes)
-}
-
-#[tauri::command]
-pub async fn get_note(db: State<'_, Db>, id: String) -> Result<Option<Note>, String> {
-    let row = sqlx::query("SELECT id, title, body, transcript, summary, created_at, updated_at FROM notes WHERE id = ? AND deleted_at IS NULL")
-        .bind(&id)
-        .fetch_optional(db.pool())
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(row.map(|r| Note {
+fn row_to_note(r: sqlx::sqlite::SqliteRow) -> Note {
+    Note {
         id: r.get("id"),
         title: r.get("title"),
         body: r.get("body"),
@@ -54,20 +24,118 @@ pub async fn get_note(db: State<'_, Db>, id: String) -> Result<Option<Note>, Str
         summary: r.get("summary"),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
-    }))
+    }
+}
+
+const SELECT_COLS: &str = "id, title, body, transcript, summary, created_at, updated_at";
+
+pub async fn list_notes_impl(db: &Db) -> anyhow::Result<Vec<Note>> {
+    let rows = sqlx::query(&format!(
+        "SELECT {SELECT_COLS} FROM notes WHERE deleted_at IS NULL ORDER BY updated_at DESC"
+    ))
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.into_iter().map(row_to_note).collect())
+}
+
+pub async fn get_note_impl(db: &Db, id: &str) -> anyhow::Result<Option<Note>> {
+    let row = sqlx::query(&format!(
+        "SELECT {SELECT_COLS} FROM notes WHERE id = ? AND deleted_at IS NULL"
+    ))
+    .bind(id)
+    .fetch_optional(db.pool())
+    .await?;
+    Ok(row.map(row_to_note))
+}
+
+pub async fn create_note_impl(db: &Db) -> anyhow::Result<Note> {
+    let id = uuid::Uuid::new_v4().to_string();
+    sqlx::query("INSERT INTO notes (id) VALUES (?)")
+        .bind(&id)
+        .execute(db.pool())
+        .await?;
+    get_note_impl(db, &id).await?.ok_or_else(|| anyhow::anyhow!("刚创建的笔记不存在"))
+}
+
+pub async fn update_note_impl(
+    db: &Db,
+    id: &str,
+    title: Option<&str>,
+    body: Option<&str>,
+) -> anyhow::Result<()> {
+    if let Some(t) = title {
+        sqlx::query("UPDATE notes SET title = ?, updated_at = datetime('now') WHERE id = ?")
+            .bind(t)
+            .bind(id)
+            .execute(db.pool())
+            .await?;
+    }
+    if let Some(b) = body {
+        sqlx::query("UPDATE notes SET body = ?, updated_at = datetime('now') WHERE id = ?")
+            .bind(b)
+            .bind(id)
+            .execute(db.pool())
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn delete_note_impl(db: &Db, id: &str) -> anyhow::Result<()> {
+    sqlx::query("UPDATE notes SET deleted_at = datetime('now') WHERE id = ?")
+        .bind(id)
+        .execute(db.pool())
+        .await?;
+    Ok(())
+}
+
+pub async fn save_transcript_impl(db: &Db, id: &str, transcript: &str) -> anyhow::Result<()> {
+    sqlx::query("UPDATE notes SET transcript = ?, updated_at = datetime('now') WHERE id = ?")
+        .bind(transcript)
+        .bind(id)
+        .execute(db.pool())
+        .await?;
+    Ok(())
+}
+
+pub async fn save_summary_impl(db: &Db, id: &str, summary: &str) -> anyhow::Result<()> {
+    sqlx::query("UPDATE notes SET summary = ?, updated_at = datetime('now') WHERE id = ?")
+        .bind(summary)
+        .bind(id)
+        .execute(db.pool())
+        .await?;
+    Ok(())
+}
+
+pub async fn get_setting_impl(db: &Db, key: &str) -> anyhow::Result<Option<String>> {
+    let row = sqlx::query("SELECT value FROM settings WHERE key = ?")
+        .bind(key)
+        .fetch_optional(db.pool())
+        .await?;
+    Ok(row.map(|r| r.get::<String, _>("value")))
+}
+
+pub async fn set_setting_impl(db: &Db, key: &str, value: &str) -> anyhow::Result<()> {
+    sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .bind(key)
+        .bind(value)
+        .execute(db.pool())
+        .await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_notes(db: State<'_, Db>) -> Result<Vec<Note>, String> {
+    list_notes_impl(&db).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_note(db: State<'_, Db>, id: String) -> Result<Option<Note>, String> {
+    get_note_impl(&db, &id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn create_note(db: State<'_, Db>) -> Result<Note, String> {
-    let id = uuid::Uuid::new_v4().to_string();
-
-    sqlx::query("INSERT INTO notes (id) VALUES (?)")
-        .bind(&id)
-        .execute(db.pool())
-        .await
-        .map_err(|e| e.to_string())?;
-
-    get_note(db, id).await.map(|n| n.unwrap())
+    create_note_impl(&db).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -77,75 +145,38 @@ pub async fn update_note(
     title: Option<String>,
     body: Option<String>,
 ) -> Result<(), String> {
-    if let Some(title) = title {
-        sqlx::query("UPDATE notes SET title = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(&title)
-            .bind(&id)
-            .execute(db.pool())
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-    if let Some(body) = body {
-        sqlx::query("UPDATE notes SET body = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(&body)
-            .bind(&id)
-            .execute(db.pool())
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    update_note_impl(&db, &id, title.as_deref(), body.as_deref())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn delete_note(db: State<'_, Db>, id: String) -> Result<(), String> {
-    sqlx::query("UPDATE notes SET deleted_at = datetime('now') WHERE id = ?")
-        .bind(&id)
-        .execute(db.pool())
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    delete_note_impl(&db, &id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn save_transcript(db: State<'_, Db>, id: String, transcript: String) -> Result<(), String> {
-    sqlx::query("UPDATE notes SET transcript = ?, updated_at = datetime('now') WHERE id = ?")
-        .bind(&transcript)
-        .bind(&id)
-        .execute(db.pool())
+    save_transcript_impl(&db, &id, &transcript)
         .await
-        .map_err(|e| e.to_string())?;
-    Ok(())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn save_summary(db: State<'_, Db>, id: String, summary: String) -> Result<(), String> {
-    sqlx::query("UPDATE notes SET summary = ?, updated_at = datetime('now') WHERE id = ?")
-        .bind(&summary)
-        .bind(&id)
-        .execute(db.pool())
+    save_summary_impl(&db, &id, &summary)
         .await
-        .map_err(|e| e.to_string())?;
-    Ok(())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_setting(db: State<'_, Db>, key: String) -> Result<Option<String>, String> {
-    let row = sqlx::query("SELECT value FROM settings WHERE key = ?")
-        .bind(&key)
-        .fetch_optional(db.pool())
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(row.map(|r| r.get::<String, _>("value")))
+    get_setting_impl(&db, &key).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn set_setting(db: State<'_, Db>, key: String, value: String) -> Result<(), String> {
-    sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-        .bind(&key)
-        .bind(&value)
-        .execute(db.pool())
+    set_setting_impl(&db, &key, &value)
         .await
-        .map_err(|e| e.to_string())?;
-    Ok(())
+        .map_err(|e| e.to_string())
 }

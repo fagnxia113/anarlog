@@ -7,11 +7,8 @@ use db::Db;
 use tauri::Manager;
 
 #[tauri::command]
-async fn generate_summary(
-    db: tauri::State<'_, Db>,
-    note_id: String,
-) -> Result<String, String> {
-    let llm_json = commands::get_setting(db.inner(), "llm_config".to_string())
+async fn generate_summary(db: tauri::State<'_, Db>, note_id: String) -> Result<String, String> {
+    let llm_json = commands::get_setting_impl(&db, "llm_config")
         .await
         .map_err(|e| e.to_string())?
         .ok_or("请先在设置中配置 AI 大模型")?;
@@ -19,7 +16,7 @@ async fn generate_summary(
     let config: ai::LlmConfig =
         serde_json::from_str(&llm_json).map_err(|e| e.to_string())?;
 
-    let note = commands::get_note(db.inner(), note_id.clone())
+    let note = commands::get_note_impl(&db, &note_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or("笔记不存在")?;
@@ -28,7 +25,7 @@ async fn generate_summary(
         .await
         .map_err(|e| e.to_string())?;
 
-    commands::save_summary(db.inner(), note_id, summary.clone())
+    commands::save_summary_impl(&db, &note_id, &summary)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -43,11 +40,8 @@ async fn test_llm_connection(config: ai::LlmConfig) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn transcribe_audio(
-    db: tauri::State<'_, Db>,
-    audio_path: String,
-) -> Result<String, String> {
-    let stt_json = commands::get_setting(db.inner(), "stt_config".to_string())
+async fn transcribe_audio(db: tauri::State<'_, Db>, audio_path: String) -> Result<String, String> {
+    let stt_json = commands::get_setting_impl(&db, "stt_config")
         .await
         .map_err(|e| e.to_string())?
         .ok_or("请先在设置中配置语音转写")?;
