@@ -104,6 +104,21 @@ jobs:
       - name: Build frontend
         run: pnpm -F @hypr/desktop build
 
+      - name: Clean stale bundle artifacts from cache
+        shell: pwsh
+        run: |
+          $staleDirs = @(
+            "apps/desktop/src-tauri/target/release/bundle",
+            "apps/desktop/src-tauri/target/release/nsis",
+            "apps/desktop/src-tauri/target/release/wix"
+          )
+          foreach ($d in $staleDirs) {
+            if (Test-Path $d) {
+              Write-Host "Removing stale: $d"
+              Remove-Item -Recurse -Force $d
+            }
+          }
+
       - name: Copy VC runtime DLLs
         shell: pwsh
         run: |
@@ -157,46 +172,62 @@ jobs:
         run: |
           Write-Host "=== Bundle directory ==="
           Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle" -Recurse -ErrorAction SilentlyContinue | Select-Object FullName, Length
-          Write-Host ""
-          Write-Host "=== Checking DLLs in NSIS output ==="
-          $nsisDir = "apps/desktop/src-tauri/target/release/bundle/nsis"
-          if (Test-Path $nsisDir) {
-            Get-ChildItem -Path $nsisDir -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  DLL: $($_.FullName)" }
-          }
 
-      - name: Verify NSIS installer contents
+      - name: Print NSIS installer script
         shell: pwsh
         run: |
-          $nsisExe = Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($nsisExe) {
-            Write-Host "=== NSIS installer: $($nsisExe.Name) ==="
-            Write-Host "Size: $([math]::Round($nsisExe.Length / 1MB, 2)) MB"
-            # Install to temp dir silently and check for DLLs
-            $tempInstall = "D:\temp-nsis-install"
-            & $nsisExe.FullName /S /D=$tempInstall
-            Start-Sleep -Seconds 5
-            Write-Host "=== Installed files ==="
-            Get-ChildItem -Path $tempInstall -Recurse -ErrorAction SilentlyContinue | Select-Object FullName, Length
+          $nsiFile = "apps/desktop/src-tauri/target/release/nsis/x64/installer.nsi"
+          if (Test-Path $nsiFile) {
+            Write-Host "=== installer.nsi (resources/File lines) ==="
+            Get-Content $nsiFile | Where-Object { $_ -match "(File|Resource|msvcp|vcruntime|vcrt|\\\$INSTDIR)" } | ForEach-Object { Write-Host "  $_" }
             Write-Host ""
-            Write-Host "=== Checking for VC runtime DLLs ==="
-            $dlls = @("msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll")
-            foreach ($dll in $dlls) {
-              $found = Get-ChildItem -Path $tempInstall -Recurse -Filter $dll -ErrorAction SilentlyContinue
-              if ($found) {
-                Write-Host "  FOUND: $dll at $($found.FullName)"
-              } else {
-                Write-Host "  MISSING: $dll"
-              }
+            Write-Host "=== Full installer.nsi path: $nsiFile ==="
+          } else {
+            Write-Host "installer.nsi not found at $nsiFile"
+          }
+
+      - name: Verify NSIS installer contents (7-zip extraction)
+        shell: pwsh
+        run: |
+          $nsisExe = Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $nsisExe) {
+            Write-Host "No NSIS installer found"
+            exit 1
+          }
+          Write-Host "=== NSIS installer: $($nsisExe.Name) ==="
+          Write-Host "Size: $([math]::Round($nsisExe.Length / 1MB, 2)) MB"
+          Write-Host "LastWriteTime: $($nsisExe.LastWriteTime)"
+
+          $tempExtract = "D:\temp-nsis-extract"
+          if (Test-Path $tempExtract) { Remove-Item -Recurse -Force $tempExtract }
+          & 7z x $nsisExe.FullName -o"$tempExtract" -y | Out-Null
+
+          Write-Host "=== Extracted files ==="
+          Get-ChildItem -Path $tempExtract -Recurse -ErrorAction SilentlyContinue | Select-Object FullName, Length
+          Write-Host ""
+          Write-Host "=== Checking for VC runtime DLLs ==="
+          $dlls = @("msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+          $allFound = $true
+          foreach ($dll in $dlls) {
+            $found = Get-ChildItem -Path $tempExtract -Recurse -Filter $dll -ErrorAction SilentlyContinue
+            if ($found) {
+              Write-Host "  FOUND: $dll at $($found.FullName)"
+            } else {
+              Write-Host "  MISSING: $dll"
+              $allFound = $false
             }
+          }
+          if (-not $allFound) {
+            Write-Host "##[warning]Some VC runtime DLLs are missing from the NSIS installer"
           }
 
       - name: Find MSI installer
         id: find-msi
         shell: pwsh
         run: |
-          $msi = Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $msi = Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if ($msi) {
-            Write-Host "Found MSI: $($msi.FullName)"
+            Write-Host "Found MSI: $($msi.FullName) (modified $($msi.LastWriteTime))"
             "msi_path=$($msi.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             "msi_name=$($msi.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           } else {
@@ -207,9 +238,9 @@ jobs:
         id: find-nsis
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $exe = Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if ($exe) {
-            Write-Host "Found NSIS EXE: $($exe.FullName)"
+            Write-Host "Found NSIS EXE: $($exe.FullName) (modified $($exe.LastWriteTime))"
             "exe_path=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             "exe_name=$($exe.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           } else {
