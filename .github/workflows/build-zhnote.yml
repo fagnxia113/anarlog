@@ -116,20 +116,6 @@ jobs:
             Write-Host "No NSIS EXE found"
           }
 
-      - name: Find MSI installer
-        id: find-msi
-        if: always()
-        shell: pwsh
-        run: |
-          $msi = Get-ChildItem -Path "apps/zhnote/src-tauri/target/release/bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if ($msi) {
-            Write-Host "Found MSI: $($msi.FullName)"
-            "msi_path=$($msi.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            "msi_name=$($msi.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          } else {
-            Write-Host "No MSI found"
-          }
-
       - name: Upload NSIS installer
         if: always() && steps.find-nsis.outputs.exe_path
         uses: actions/upload-artifact@v4
@@ -137,10 +123,3 @@ jobs:
           name: zhnote-windows-nsis
           path: ${{ steps.find-nsis.outputs.exe_path }}
           if-no-files-found: error
-
-      - name: Upload MSI installer
-        if: always() && steps.find-msi.outputs.msi_path
-        uses: actions/upload-artifact@v4
-        with:
-          name: zhnote-windows-msi
-          path: ${{ steps.find-msi.outputs.msi_path }}
