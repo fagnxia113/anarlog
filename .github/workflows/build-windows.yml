@@ -175,11 +175,12 @@ jobs:
 
       - name: Print NSIS installer script
         shell: pwsh
+        continue-on-error: true
         run: |
           $nsiFile = "apps/desktop/src-tauri/target/release/nsis/x64/installer.nsi"
           if (Test-Path $nsiFile) {
             Write-Host "=== installer.nsi (resources/File lines) ==="
-            Get-Content $nsiFile | Where-Object { $_ -match "(File|Resource|msvcp|vcruntime|vcrt|\\\$INSTDIR)" } | ForEach-Object { Write-Host "  $_" }
+            Get-Content $nsiFile | Where-Object { $_ -match '(File|Resource|msvcp|vcruntime|vcrt|INSTDIR)' } | ForEach-Object { Write-Host "  $_" }
             Write-Host ""
             Write-Host "=== Full installer.nsi path: $nsiFile ==="
           } else {
@@ -223,6 +224,7 @@ jobs:
 
       - name: Find MSI installer
         id: find-msi
+        if: always()
         shell: pwsh
         run: |
           $msi = Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -236,6 +238,7 @@ jobs:
 
       - name: Find NSIS installer
         id: find-nsis
+        if: always()
         shell: pwsh
         run: |
           $exe = Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -248,14 +251,14 @@ jobs:
           }
 
       - name: Upload MSI installer
-        if: steps.find-msi.outputs.msi_path
+        if: always() && steps.find-msi.outputs.msi_path
         uses: actions/upload-artifact@v4
         with:
           name: anarlog-windows-msi
           path: ${{ steps.find-msi.outputs.msi_path }}
 
       - name: Upload NSIS installer
-        if: steps.find-nsis.outputs.exe_path
+        if: always() && steps.find-nsis.outputs.exe_path
         uses: actions/upload-artifact@v4
         with:
           name: anarlog-windows-nsis
