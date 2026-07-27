@@ -4,9 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>笔记</title>
+    <style>
+      #boot {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-family: system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+        color: #6b7280;
+        font-size: 14px;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot">正在加载...</div>
+    </div>
+    <noscript>需要启用 JavaScript 才能运行此应用</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
