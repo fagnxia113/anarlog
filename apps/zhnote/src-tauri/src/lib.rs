@@ -85,7 +85,19 @@ pub fn run() {
                     Ok(db) => db,
                     Err(e) => {
                         eprintln!("数据库初始化失败: {}", e);
-                        std::process::exit(1);
+                        let msg = format!("数据库初始化失败：{}\n\n应用即将退出。", e);
+                        tauri::AppHandle::run_in_main_thread(app_handle.clone(), move || {
+                            let _ = tauri_plugin_dialog::DialogExt::app(&app_handle)
+                                .message(msg)
+                                .title("Zhnote 启动失败")
+                                .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+                                .buttons(tauri_plugin_dialog::MessageDialogButtons::Ok)
+                                .show(|_| {
+                                    std::process::exit(1);
+                                });
+                        })
+                        .await;
+                        return;
                     }
                 };
 
