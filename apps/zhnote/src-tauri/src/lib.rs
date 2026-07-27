@@ -5,6 +5,7 @@ mod stt;
 
 use db::Db;
 use tauri::Manager;
+use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
 async fn generate_summary(db: tauri::State<'_, Db>, note_id: String) -> Result<String, String> {
@@ -89,7 +90,8 @@ pub fn run() {
                 Err(e) => {
                     eprintln!("数据库初始化失败: {}", e);
                     let msg = format!("数据库初始化失败：{}\n\n应用即将退出。", e);
-                    tauri_plugin_dialog::DialogExt::app(&app_handle)
+                    app_handle
+                        .dialog()
                         .message(msg)
                         .title("Zhnote 启动失败")
                         .kind(tauri_plugin_dialog::MessageDialogKind::Error)
