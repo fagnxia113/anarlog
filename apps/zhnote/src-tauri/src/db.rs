@@ -1,8 +1,9 @@
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use sqlx::{ConnectOptions, SqlitePool};
+use sqlx::SqlitePool;
 
 #[derive(Clone)]
 pub struct Db(pub Arc<SqlitePool>);
@@ -19,7 +20,7 @@ pub async fn open_db(app_data_dir: PathBuf) -> anyhow::Result<Db> {
     let db_path = app_data_dir.join("zhnote.db");
     let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
 
-    let options = SqliteConnectOptions::from_url(&db_url)?
+    let options = SqliteConnectOptions::from_str(&db_url)?
         .create_if_missing(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
