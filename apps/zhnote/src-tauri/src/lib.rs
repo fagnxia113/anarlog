@@ -75,36 +75,29 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle().clone();
 
-            tauri::async_runtime::block_on(async move {
-                let app_data_dir = app_handle
-                    .path()
-                    .app_data_dir()
-                    .expect("failed to get app data dir");
+            let app_data_dir = app_handle
+                .path()
+                .app_data_dir()
+                .expect("failed to get app data dir");
 
-                let db = match db::open_db(app_data_dir).await {
-                    Ok(db) => db,
-                    Err(e) => {
-                        eprintln!("数据库初始化失败: {}", e);
-                        let msg = format!("数据库初始化失败：{}\n\n应用即将退出。", e);
-                        tauri::AppHandle::run_in_main_thread(app_handle.clone(), move || {
-                            let _ = tauri_plugin_dialog::DialogExt::app(&app_handle)
-                                .message(msg)
-                                .title("Zhnote 启动失败")
-                                .kind(tauri_plugin_dialog::MessageDialogKind::Error)
-                                .buttons(tauri_plugin_dialog::MessageDialogButtons::Ok)
-                                .show(|_| {
-                                    std::process::exit(1);
-                                });
-                        })
-                        .await;
-                        return;
-                    }
-                };
-
-                app_handle.manage(db);
-            });
-
-            Ok(())
+            let db = tauri::async_runtime::block_on(db::open_db(app_data_dir));
+            match db {
+                Ok(db) => {
+                    app_handle.manage(db);
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("数据库初始化失败: {}", e);
+                    let msg = format!("数据库初始化失败：{}\n\n应用即将退出。", e);
+                    tauri_plugin_dialog::DialogExt::app(&app_handle)
+                        .message(msg)
+                        .title("Zhnote 启动失败")
+                        .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+                        .buttons(tauri_plugin_dialog::MessageDialogButtons::Ok)
+                        .blocking_show();
+                    std::process::exit(1);
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_notes,
