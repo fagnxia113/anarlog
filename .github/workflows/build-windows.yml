@@ -126,9 +126,8 @@ jobs:
 
       - name: Build Tauri app (Windows)
         working-directory: apps/desktop
-        run: pnpm tauri build --ci --no-sign --verbose --config ./src-tauri/tauri.windows.conf.json
+        run: pnpm tauri build --ci --no-sign --verbose
         env:
-          RUSTFLAGS: "-C target-feature=+crt-static"
           POSTHOG_API_KEY: phc_windows_ci
           VITE_POSTHOG_API_KEY: phc_windows_ci
           SENTRY_DSN: ${{ secrets.SENTRY_DSN_HYPRNOTE_2 }}
@@ -137,6 +136,21 @@ jobs:
           VITE_APP_URL: https://anarlog.so
           VITE_API_URL: https://api.anarlog.so
           VITE_PRO_PRODUCT_ID: ${{ secrets.VITE_PRO_PRODUCT_ID }}
+
+      - name: Check exe dependencies
+        shell: pwsh
+        run: |
+          $exe = "apps/desktop/src-tauri/target/release/anarlog-dev.exe"
+          if (Test-Path $exe) {
+            Write-Host "=== Exe DLL dependencies ==="
+            & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+            $dumpbin = Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -Recurse -Filter "dumpbin.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($dumpbin) {
+              & $dumpbin.FullName /dependents $exe
+            } else {
+              Write-Host "dumpbin not found, skipping dependency check"
+            }
+          }
 
       - name: List build artifacts
         shell: pwsh
