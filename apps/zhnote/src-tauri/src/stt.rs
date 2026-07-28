@@ -45,6 +45,30 @@ pub struct SttState {
     pub model_dir: PathBuf,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelStatus {
+    pub sensevoice_ready: bool,
+    pub vad_ready: bool,
+    pub diarization_ready: bool,
+    pub model_dir: String,
+}
+
+pub fn check_models(model_dir: &std::path::Path) -> ModelStatus {
+    let sv = model_dir.join("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17");
+    let sensevoice_ready = sv.join("model.int8.onnx").exists() && sv.join("tokens.txt").exists();
+    let vad_ready = model_dir.join("silero_vad.onnx").exists();
+    let dia_dir = model_dir.join("sherpa-onnx-pyannote-segmentation-3-0");
+    let emb_dir = model_dir.join("3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k");
+    let diarization_ready = dia_dir.join("model.onnx").exists() && emb_dir.join("model.onnx").exists();
+
+    ModelStatus {
+        sensevoice_ready,
+        vad_ready,
+        diarization_ready,
+        model_dir: model_dir.display().to_string(),
+    }
+}
+
 pub struct SttEngine {
     recognizer: OfflineRecognizer,
     vad: VoiceActivityDetector,

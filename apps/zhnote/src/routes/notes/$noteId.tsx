@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ChevronDown, ChevronRight, Mic, RefreshCw, Square, Trash2 } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronRight, Mic, RefreshCw, Square, Trash2 } from "lucide-react";
 import { useLingui } from "@lingui/react/macro";
 import { useEffect, useRef, useState } from "react";
 
@@ -106,23 +106,31 @@ function NoteEditPage() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [transcriptOpen, setTranscriptOpen] = useState(true);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
   const runPipeline = async (audioPath: string) => {
+    setPipelineError(null);
     setIsTranscribing(true);
     try {
       const result = await api.transcribeAudio(audioPath);
       await api.saveTranscript(noteId, result.text);
       await api.saveSegments(noteId, JSON.stringify(result.segments));
       await queryClient.invalidateQueries({ queryKey: ["note", noteId] });
-    } finally {
+    } catch (e) {
+      setPipelineError(e instanceof Error ? e.message : String(e));
       setIsTranscribing(false);
+      return;
     }
+    setIsTranscribing(false);
+
     setIsGenerating(true);
     try {
       await api.generateSummary(noteId);
       await queryClient.invalidateQueries({ queryKey: ["note", noteId] });
+    } catch (e) {
+      setPipelineError(e instanceof Error ? e.message : String(e));
     } finally {
       setIsGenerating(false);
     }
@@ -142,6 +150,7 @@ function NoteEditPage() {
   };
 
   const startRecording = async () => {
+    setPipelineError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
@@ -157,7 +166,11 @@ function NoteEditPage() {
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
     } catch (e) {
-      console.error(e);
+      setPipelineError(
+        e instanceof Error
+          ? `${i18n._("error.microphone_failed")}: ${e.message}`
+          : i18n._("error.microphone_failed"),
+      );
     }
   };
 
@@ -207,8 +220,9 @@ function NoteEditPage() {
         <button
           type="button"
           onClick={isRecording ? stopRecording : startRecording}
+          disabled={isTranscribing || isGenerating}
           className={cn(
-            "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-white",
+            "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-white disabled:opacity-50",
             isRecording ? "bg-red-500" : "bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)]",
           )}
         >
@@ -224,6 +238,19 @@ function NoteEditPage() {
           {i18n._("note.delete")}
         </button>
       </header>
+      {pipelineError && (
+        <div className="flex items-center gap-2 border-b border-red-200 bg-red-50 px-6 py-2 text-sm text-red-700">
+          <AlertCircle size={16} className="shrink-0" />
+          <span className="flex-1">{pipelineError}</span>
+          <button
+            type="button"
+            onClick={() => setPipelineError(null)}
+            className="shrink-0 text-red-400 hover:text-red-600"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-auto p-6">
           <Editor

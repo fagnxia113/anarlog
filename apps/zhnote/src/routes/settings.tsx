@@ -2,10 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useForm } from "@tanstack/react-form";
 import { useLingui } from "@lingui/react/macro";
+import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
+import { CheckCircle2, Download, FolderOpen, Loader2, XCircle } from "lucide-react";
 
 import { useLocale } from "@/i18n/provider";
-import { api, type LlmConfig, type SttConfig } from "@/lib/tauri";
+import { api, type DownloadProgress, type LlmConfig, type ModelStatus, type SttConfig } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/settings")({
@@ -36,12 +38,48 @@ const CLOUD_MODELS = [
   { value: "distil-whisper-large-v3-en", label: "Distil Whisper Large V3 EN" },
 ];
 
+function ModelStatusRow({ ready, label }: { ready: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      {ready
+        ? <CheckCircle2 size={16} className="text-green-600" />
+        : <XCircle size={16} className="text-red-500" />}
+      <span className={ready ? "text-[var(--color-text)]" : "text-[var(--color-text-muted)]"}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
 function SettingsPage() {
   const { i18n } = useLingui();
   const { locale, setLocale } = useLocale();
   const queryClient = useQueryClient();
   const [saved, setSaved] = useState(false);
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "failed">("idle");
+
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  const modelQuery = useQuery({
+    queryKey: ["stt-models"],
+    queryFn: () => api.checkSttModels(),
+    enabled: false,
+  });
+
+  const checkModels = async () => {
+    await modelQuery.refetch();
+  };
+
+  useEffect(() => {
+    const unlistenPromise = listen<DownloadProgress>("stt-download-progress", (event) => {
+      setDownloadProgress(event.payload);
+    });
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, []);
 
   const llmQuery = useQuery({
     queryKey: ["setting", "llm_config"],
@@ -100,13 +138,33 @@ function SettingsPage() {
     }
   };
 
+  const onDownloadModels = async () => {
+    setDownloadError(null);
+    setDownloading(true);
+    setDownloadProgress(null);
+    try {
+      await api.downloadSttModels(form.state.values.stt.diarization);
+      await checkModels();
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDownloading(false);
+      setDownloadProgress(null);
+    }
+  };
+
+  const onOpenModelDir = () => {
+    void api.openModelDir();
+  };
+
+  const modelStatus: ModelStatus | undefined = modelQuery.data;
+  const isLocalMode = form.state.values.stt.mode === "local";
+
   if (llmQuery.isLoading || sttQuery.isLoading) {
     return (
       <div className="p-6 text-[var(--color-text-muted)]">{i18n._("common.loading")}</div>
     );
   }
-
-  const isLocalMode = form.state.values.stt.mode === "local";
 
   return (
     <div className="h-full overflow-auto">
@@ -218,9 +276,78 @@ function SettingsPage() {
             </form.Field>
 
             {isLocalMode && (
-              <p className="text-xs text-[var(--color-text-muted)]">
-                {i18n._("settings.stt.local_hint")}
-              </p>
+              <div className="flex flex-col gap-3 rounded-md border border-[var(--color-border)] p-4">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onDownloadModels}
+                    disabled={downloading}
+                    className="flex items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-sm text-white hover:bg-[var(--color-primary-hover)] disabled:opacity-50"
+                  >
+                    {downloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    {downloading ? i18n._("settings.stt.downloading") : i18n._("settings.stt.download")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onOpenModelDir}
+                    className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm"
+                  >
+                    <FolderOpen size={14} />
+                    {i18n._("settings.stt.open_dir")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={checkModels}
+                    disabled={downloading}
+                    className="text-xs text-[var(--color-primary)] disabled:opacity-50"
+                  >
+                    {i18n._("settings.stt.check")}
+                  </button>
+                </div>
+
+                {downloading && downloadProgress && (
+                  <div className="flex flex-col gap-1">
+                    <div className="flex justify-between text-xs text-[var(--color-text-muted)]">
+                      <span>{downloadProgress.file_name}</span>
+                      <span>{downloadProgress.file_index + 1} / {downloadProgress.file_count}</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-[var(--color-border)]">
+                      <div
+                        className="h-full bg-[var(--color-primary)] transition-all"
+                        style={{ width: `${downloadProgress.percent}%` }}
+                      />
+                    </div>
+                    <div className="text-xs text-[var(--color-text-muted)]">
+                      {downloadProgress.percent}%
+                      {downloadProgress.total > 0 && (
+                        <span> ({(downloadProgress.current / 1024 / 1024).toFixed(1)} / {(downloadProgress.total / 1024 / 1024).toFixed(1)} MB)</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {downloadError && (
+                  <div className="text-sm text-red-600">{downloadError}</div>
+                )}
+
+                {modelStatus && !downloading && (
+                  <div className="flex flex-col gap-1.5">
+                    <ModelStatusRow ready={modelStatus.sensevoice_ready} label={i18n._("settings.stt.model.sensevoice")} />
+                    <ModelStatusRow ready={modelStatus.vad_ready} label={i18n._("settings.stt.model.vad")} />
+                    <ModelStatusRow ready={modelStatus.diarization_ready} label={i18n._("settings.stt.model.diarization")} />
+                    {modelStatus.sensevoice_ready && modelStatus.vad_ready && !modelStatus.diarization_ready && form.state.values.stt.diarization && (
+                      <p className="text-xs text-orange-600">{i18n._("settings.stt.diarization_missing")}</p>
+                    )}
+                    {!modelStatus.sensevoice_ready || !modelStatus.vad_ready
+                      ? <p className="text-xs text-red-500">{i18n._("settings.stt.models_not_ready")}</p>
+                      : <p className="text-xs text-green-600">{i18n._("settings.stt.models_ready")}</p>}
+                  </div>
+                )}
+
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  {i18n._("settings.stt.local_hint")}
+                </p>
+              </div>
             )}
 
             {isLocalMode && (

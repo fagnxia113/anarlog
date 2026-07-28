@@ -148,6 +148,134 @@ fn convert_to_wav(input: &str, output: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tauri::command]
+fn check_stt_models(stt_state: tauri::State<'_, SttState>) -> Result<stt::ModelStatus, String> {
+    Ok(stt::check_models(&stt_state.model_dir))
+}
+
+#[derive(serde::Serialize, Clone)]
+struct DownloadProgress {
+    file_name: String,
+    current: u64,
+    total: u64,
+    percent: u32,
+    file_index: usize,
+    file_count: usize,
+}
+
+#[tauri::command]
+async fn download_stt_models(
+    stt_state: tauri::State<'_, SttState>,
+    app_handle: tauri::AppHandle,
+    include_diarization: bool,
+) -> Result<(), String> {
+    use tokio::io::AsyncWriteExt;
+
+    let model_dir = stt_state.model_dir.clone();
+
+    let mut files: Vec<(&str, &str)> = vec![
+        (
+            "https://huggingface.co/k2-fsa/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/resolve/main/model.int8.onnx",
+            "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx",
+        ),
+        (
+            "https://huggingface.co/k2-fsa/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/resolve/main/tokens.txt",
+            "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt",
+        ),
+        (
+            "https://huggingface.co/k2-fsa/sherpa-onnx-vad-models/resolve/main/silero_vad.onnx",
+            "silero_vad.onnx",
+        ),
+    ];
+
+    if include_diarization {
+        files.push((
+            "https://huggingface.co/k2-fsa/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx",
+            "sherpa-onnx-pyannote-segmentation-3-0/model.onnx",
+        ));
+        files.push((
+            "https://huggingface.co/3dspeaker/speech_eres2net_base_sv_zh-cn_3dspeaker_16k/resolve/main/model.onnx",
+            "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k/model.onnx",
+        ));
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(600))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let file_count = files.len();
+
+    for (i, (url, rel_path)) in files.iter().enumerate() {
+        let dest = model_dir.join(rel_path);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+
+        let file_name = rel_path.rsplit('/').next().unwrap_or(rel_path).to_string();
+
+        let resp = client.get(*url).send().await.map_err(|e| format!("下载失败: {}", e))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("下载失败: HTTP {} ({})", resp.status(), url));
+        }
+
+        let total = resp.content_length().unwrap_or(0);
+        let mut file = tokio::fs::File::create(&dest).await.map_err(|e| e.to_string())?;
+        let mut downloaded: u64 = 0;
+
+        while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+            file.write_all(&chunk).await.map_err(|e| e.to_string())?;
+            downloaded += chunk.len() as u64;
+
+            let percent = if total > 0 { (downloaded * 100 / total) as u32 } else { 0 };
+            let _ = app_handle.emit("stt-download-progress", DownloadProgress {
+                file_name: file_name.clone(),
+                current: downloaded,
+                total,
+                percent,
+                file_index: i,
+                file_count,
+            });
+        }
+    }
+
+    let mut guard = stt_state.engine.lock().map_err(|e| e.to_string())?;
+    *guard = None;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn open_model_dir(stt_state: tauri::State<'_, SttState>) -> Result<(), String> {
+    let path = &stt_state.model_dir;
+    std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(path.as_os_str())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(path.as_os_str())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(path.as_os_str())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_logging();
@@ -224,6 +352,9 @@ pub fn run() {
             generate_summary,
             test_llm_connection,
             transcribe_audio,
+            check_stt_models,
+            download_stt_models,
+            open_model_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running zhnote");

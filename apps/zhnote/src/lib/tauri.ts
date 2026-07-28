@@ -38,6 +38,22 @@ export interface TranscribeResult {
   segments: SpeakerSegment[];
 }
 
+export interface ModelStatus {
+  sensevoice_ready: boolean;
+  vad_ready: boolean;
+  diarization_ready: boolean;
+  model_dir: string;
+}
+
+export interface DownloadProgress {
+  file_name: string;
+  current: number;
+  total: number;
+  percent: number;
+  file_index: number;
+  file_count: number;
+}
+
 export const api = {
   listNotes: () => invoke<Note[]>("list_notes"),
   getNote: (id: string) => invoke<Note | null>("get_note", { id }),
@@ -60,4 +76,8 @@ export const api = {
     invoke<void>("test_llm_connection", { config }),
   transcribeAudio: (audioPath: string) =>
     invoke<TranscribeResult>("transcribe_audio", { audioPath }),
+  checkSttModels: () => invoke<ModelStatus>("check_stt_models"),
+  downloadSttModels: (includeDiarization: boolean) =>
+    invoke<void>("download_stt_models", { includeDiarization }),
+  openModelDir: () => invoke<void>("open_model_dir"),
 };
