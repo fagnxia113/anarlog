@@ -41,8 +41,6 @@ function TranscriptView({ transcript, segmentsJson }: { transcript: string; segm
   }
 
   if (segments.length > 0 && segments.some((s) => s.speaker > 0)) {
-    const speakerSet = [...new Set(segments.map((s) => s.speaker))];
-
     return (
       <div className="flex flex-col gap-1">
         {segments.map((seg, i) => (
@@ -200,6 +198,7 @@ function NoteEditPage() {
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-2 border-b border-[var(--color-border)] px-6 py-3">
         <input
+          key={`title-${note.title}`}
           className="flex-1 bg-transparent text-lg font-semibold focus:outline-none"
           defaultValue={note.title}
           placeholder={i18n._("note.title.placeholder")}

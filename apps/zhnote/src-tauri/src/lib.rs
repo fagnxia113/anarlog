@@ -33,15 +33,45 @@ async fn generate_summary(db: tauri::State<'_, Db>, note_id: String) -> Result<S
         .map_err(|e| e.to_string())?
         .ok_or("笔记不存在")?;
 
-    let summary = ai::generate_summary(&config, &note.transcript, &note.body)
+    let result = ai::generate_title_and_summary(&config, &note.transcript, &note.body)
         .await
         .map_err(|e| e.to_string())?;
 
-    commands::save_summary_impl(&db, &note_id, &summary)
+    commands::save_summary_impl(&db, &note_id, &result.summary)
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(summary)
+    if !result.title.is_empty() {
+        let time_part = format_note_time(&note.created_at);
+        let new_title = if note.title.is_empty() || is_auto_title(&note.title) {
+            format!("{} {}", result.title, time_part)
+        } else {
+            note.title.clone()
+        };
+
+        if new_title != note.title {
+            commands::update_note_impl(&db, &note_id, Some(&new_title), None)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(result.summary)
+}
+
+fn format_note_time(created_at: &str) -> String {
+    let cleaned = created_at.split('.').next().unwrap_or(created_at);
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(cleaned, "%Y-%m-%d %H:%M:%S") {
+        dt.format("%m-%d %H:%M").to_string()
+    } else if cleaned.len() >= 10 {
+        cleaned[..10].to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
+
+fn is_auto_title(title: &str) -> bool {
+    title.trim().is_empty()
 }
 
 #[tauri::command]

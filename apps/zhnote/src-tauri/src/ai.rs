@@ -22,7 +22,14 @@ const ZH_ENHANCE_SYSTEM: &str = r#"你是一个中文笔记助手。请根据用
 7. 用 Markdown 格式，包含：要点、待办事项（如有）、关键决策
 8. 保持客观简洁，不要添加主观评价
 
+输出格式要求（严格遵守）：
+第一行以 TITLE: 开头，写一个简短的会议/笔记标题（不超过20字，不要包含日期时间，不要加书名号或引号）
+第二行写 ---
+从第三行开始写摘要正文
+
 输出格式示例：
+TITLE: 产品周会讨论下季度计划
+---
 ## 要点
 - ...
 
@@ -39,11 +46,17 @@ pub struct EnhanceRequest {
     pub notes: String,
 }
 
-pub async fn generate_summary(
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TitleSummary {
+    pub title: String,
+    pub summary: String,
+}
+
+pub async fn generate_title_and_summary(
     config: &LlmConfig,
     transcript: &str,
     notes: &str,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<TitleSummary> {
     let user_content = format!(
         "转写文本：\n{}\n\n手写笔记：\n{}",
         transcript, notes
@@ -80,7 +93,33 @@ pub async fn generate_summary(
         .unwrap_or("")
         .to_string();
 
-    Ok(content)
+    let (title, summary) = parse_title_summary(&content);
+
+    Ok(TitleSummary { title, summary })
+}
+
+fn parse_title_summary(content: &str) -> (String, String) {
+    let mut lines = content.lines();
+
+    let first_line = lines.next().unwrap_or("").trim();
+
+    let title = if let Some(rest) = first_line.strip_prefix("TITLE:") {
+        rest.trim().to_string()
+    } else if !first_line.is_empty() && !first_line.starts_with("## ") && !first_line.starts_with("# ") {
+        first_line.to_string()
+    } else {
+        String::new()
+    };
+
+    let mut rest: Vec<&str> = lines.collect();
+
+    if !rest.is_empty() && rest[0].trim() == "---" {
+        rest.remove(0);
+    }
+
+    let summary = rest.join("\n").trim().to_string();
+
+    (title, summary)
 }
 
 pub async fn test_connection(config: &LlmConfig) -> anyhow::Result<()> {
