@@ -200,7 +200,7 @@ impl SttEngine {
 
                 let chunk = &samples[start_sample..end_sample];
 
-                let mut stream = self.recognizer.create_stream();
+                let stream = self.recognizer.create_stream();
                 stream.accept_waveform(sample_rate, chunk);
                 self.recognizer.decode(&stream);
                 let text = stream.get_result()
@@ -240,7 +240,7 @@ impl SttEngine {
                 };
                 self.vad.pop();
 
-                let mut stream = self.recognizer.create_stream();
+                let stream = self.recognizer.create_stream();
                 stream.accept_waveform(sample_rate, speech.samples());
                 self.recognizer.decode(&stream);
                 let text = stream.get_result()

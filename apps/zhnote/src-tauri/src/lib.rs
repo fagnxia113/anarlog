@@ -5,7 +5,7 @@ mod stt;
 
 use db::Db;
 use stt::SttState;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
