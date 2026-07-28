@@ -1,16 +1,17 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { FileText, Plus, Settings } from "lucide-react";
+import { FileText, Moon, Plus, Settings, Sun } from "lucide-react";
 import { useLingui } from "@lingui/react/macro";
 
 import { api } from "@/lib/tauri";
-import { cn } from "@/lib/utils";
+import { cn, useTheme } from "@/lib/utils";
 
 export function Sidebar() {
   const { i18n } = useLingui();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { location } = useRouterState();
+  const { theme, toggleTheme } = useTheme();
   const onNotes = location.pathname.startsWith("/notes");
   const onSettings = location.pathname.startsWith("/settings");
 
@@ -47,7 +48,15 @@ export function Sidebar() {
           {i18n._("nav.settings")}
         </Link>
       </nav>
-      <div className="p-2">
+      <div className="flex flex-col gap-2 p-2">
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="flex w-full items-center justify-center gap-2 rounded-md border border-[var(--color-border)] px-3 py-2 text-sm hover:bg-[var(--color-border)]"
+        >
+          {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          {theme === "dark" ? i18n._("settings.theme.light") : i18n._("settings.theme.dark")}
+        </button>
         <button
           type="button"
           onClick={() => createMutation.mutate()}

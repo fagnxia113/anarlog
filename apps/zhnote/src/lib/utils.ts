@@ -1,8 +1,27 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { useEffect, useState } from "react";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+export type Theme = "light" | "dark";
+
+export function useTheme() {
+  const [theme, setThemeState] = useState<Theme>(() => {
+    const saved = localStorage.getItem("theme") as Theme | null;
+    if (saved) return saved;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => setThemeState((t) => (t === "dark" ? "light" : "dark"));
+  return { theme, toggleTheme };
 }
 
 export function formatRelativeDate(date: Date | string, locale = "zh-CN"): string {

@@ -80,4 +80,10 @@ export const api = {
   downloadSttModels: (includeDiarization: boolean) =>
     invoke<void>("download_stt_models", { includeDiarization }),
   openModelDir: () => invoke<void>("open_model_dir"),
+  searchNotes: (query: string) =>
+    invoke<Note[]>("search_notes", { query }),
+  listTrashedNotes: () => invoke<Note[]>("list_trashed_notes"),
+  restoreNote: (id: string) => invoke<void>("restore_note", { id }),
+  exportNoteMarkdown: (id: string) =>
+    invoke<string>("export_note_markdown", { id }),
 };

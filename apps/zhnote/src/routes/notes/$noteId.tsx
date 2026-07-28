@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { AlertCircle, ChevronDown, ChevronRight, Mic, RefreshCw, Square, Trash2 } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronRight, Clipboard, Download, Mic, Pause, Play, RefreshCw, Square, Trash2 } from "lucide-react";
 import { useLingui } from "@lingui/react/macro";
 import { useEffect, useRef, useState } from "react";
 
@@ -103,12 +103,30 @@ function NoteEditPage() {
   };
 
   const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [transcriptOpen, setTranscriptOpen] = useState(true);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pausedTimeRef = useRef(0);
+  const pauseStartRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    };
+  }, []);
+
+  const formatDuration = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
 
   const runPipeline = async (audioPath: string) => {
     setPipelineError(null);
@@ -138,6 +156,15 @@ function NoteEditPage() {
 
   const handleStop = async () => {
     setIsRecording(false);
+    setIsPaused(false);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    setRecordingTime(0);
+    pausedTimeRef.current = 0;
+    pauseStartRef.current = null;
+
     const blob = new Blob(chunksRef.current, { type: "audio/webm" });
     const buf = new Uint8Array(await blob.arrayBuffer());
     const { appDataDir, join } = await import("@tauri-apps/api/path");
@@ -165,12 +192,38 @@ function NoteEditPage() {
       recorder.start();
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
+      setIsPaused(false);
+      setRecordingTime(0);
+      pausedTimeRef.current = 0;
+      recordingTimerRef.current = setInterval(() => {
+        if (pauseStartRef.current === null) {
+          setRecordingTime((t) => t + 1);
+        }
+      }, 1000);
     } catch (e) {
       setPipelineError(
         e instanceof Error
           ? `${i18n._("error.microphone_failed")}: ${e.message}`
           : i18n._("error.microphone_failed"),
       );
+    }
+  };
+
+  const togglePause = () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+
+    if (isPaused) {
+      recorder.resume();
+      setIsPaused(false);
+      if (pauseStartRef.current !== null) {
+        pausedTimeRef.current += Date.now() - pauseStartRef.current;
+        pauseStartRef.current = null;
+      }
+    } else {
+      recorder.pause();
+      setIsPaused(true);
+      pauseStartRef.current = Date.now();
     }
   };
 
@@ -185,6 +238,35 @@ function NoteEditPage() {
       await queryClient.invalidateQueries({ queryKey: ["note", noteId] });
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const onExportMarkdown = async () => {
+    try {
+      const md = await api.exportNoteMarkdown(noteId);
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const { writeFile } = await import("@tauri-apps/plugin-fs");
+      const safeTitle = (note?.title || "note").replace(/[<>:"/\\|?*]/g, "_");
+      const filePath = await save({
+        defaultPath: `${safeTitle}.md`,
+        filters: [{ name: "Markdown", extensions: ["md"] }],
+      });
+      if (filePath) {
+        await writeFile(filePath, new TextEncoder().encode(md));
+      }
+    } catch (e) {
+      setPipelineError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const onCopyToClipboard = async () => {
+    try {
+      const md = await api.exportNoteMarkdown(noteId);
+      await navigator.clipboard.writeText(md);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      setPipelineError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -209,7 +291,7 @@ function NoteEditPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-2 border-b border-[var(--color-border)] px-6 py-3">
+      <header className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] px-6 py-3">
         <input
           key={`title-${note.title}`}
           className="flex-1 bg-transparent text-lg font-semibold focus:outline-none"
@@ -217,6 +299,26 @@ function NoteEditPage() {
           placeholder={i18n._("note.title.placeholder")}
           onChange={(e) => onTitleChange(e.target.value)}
         />
+
+        {isRecording && (
+          <>
+            <span className={cn(
+              "rounded-md px-2 py-1 text-sm font-mono font-medium",
+              isPaused ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700",
+            )}>
+              {isPaused ? "⏸ " : "● "}{formatDuration(recordingTime)}
+            </span>
+            <button
+              type="button"
+              onClick={togglePause}
+              className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm hover:bg-[var(--color-border)]"
+            >
+              {isPaused ? <Play size={14} /> : <Pause size={14} />}
+              {isPaused ? i18n._("session.resume") : i18n._("session.pause")}
+            </button>
+          </>
+        )}
+
         <button
           type="button"
           onClick={isRecording ? stopRecording : startRecording}
@@ -231,8 +333,25 @@ function NoteEditPage() {
         </button>
         <button
           type="button"
+          onClick={onCopyToClipboard}
+          className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm hover:bg-[var(--color-border)]"
+          title={i18n._("note.copy")}
+        >
+          <Clipboard size={16} />
+          {copied ? "✓" : i18n._("note.copy")}
+        </button>
+        <button
+          type="button"
+          onClick={onExportMarkdown}
+          className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm hover:bg-[var(--color-border)]"
+        >
+          <Download size={16} />
+          {i18n._("note.export")}
+        </button>
+        <button
+          type="button"
           onClick={onDelete}
-          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
         >
           <Trash2 size={16} />
           {i18n._("note.delete")}

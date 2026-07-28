@@ -382,6 +382,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_notes,
+            commands::search_notes,
+            commands::list_trashed_notes,
+            commands::restore_note,
             commands::get_note,
             commands::create_note,
             commands::update_note,
@@ -391,6 +394,7 @@ pub fn run() {
             commands::save_segments,
             commands::get_setting,
             commands::set_setting,
+            commands::export_note_markdown,
             generate_summary,
             test_llm_connection,
             transcribe_audio,

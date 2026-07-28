@@ -38,6 +38,36 @@ pub async fn list_notes_impl(db: &Db) -> anyhow::Result<Vec<Note>> {
     Ok(rows.into_iter().map(row_to_note).collect())
 }
 
+pub async fn search_notes_impl(db: &Db, query: &str) -> anyhow::Result<Vec<Note>> {
+    let pattern = format!("%{}%", query);
+    let rows = sqlx::query(
+        "SELECT id, title, body, transcript, segments, summary, created_at, updated_at FROM notes WHERE deleted_at IS NULL AND (title LIKE ? OR body LIKE ? OR transcript LIKE ?) ORDER BY updated_at DESC",
+    )
+    .bind(&pattern)
+    .bind(&pattern)
+    .bind(&pattern)
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.into_iter().map(row_to_note).collect())
+}
+
+pub async fn list_trashed_notes_impl(db: &Db) -> anyhow::Result<Vec<Note>> {
+    let rows = sqlx::query(
+        "SELECT id, title, body, transcript, segments, summary, created_at, updated_at FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+    )
+    .fetch_all(db.pool())
+    .await?;
+    Ok(rows.into_iter().map(row_to_note).collect())
+}
+
+pub async fn restore_note_impl(db: &Db, id: &str) -> anyhow::Result<()> {
+    sqlx::query("UPDATE notes SET deleted_at = NULL, updated_at = datetime('now') WHERE id = ?")
+        .bind(id)
+        .execute(db.pool())
+        .await?;
+    Ok(())
+}
+
 pub async fn get_note_impl(db: &Db, id: &str) -> anyhow::Result<Option<Note>> {
     let row = sqlx::query(
         "SELECT id, title, body, transcript, segments, summary, created_at, updated_at FROM notes WHERE id = ? AND deleted_at IS NULL",
@@ -138,6 +168,21 @@ pub async fn list_notes(db: State<'_, Db>) -> Result<Vec<Note>, String> {
 }
 
 #[tauri::command]
+pub async fn search_notes(db: State<'_, Db>, query: String) -> Result<Vec<Note>, String> {
+    search_notes_impl(&db, &query).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_trashed_notes(db: State<'_, Db>) -> Result<Vec<Note>, String> {
+    list_trashed_notes_impl(&db).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn restore_note(db: State<'_, Db>, id: String) -> Result<(), String> {
+    restore_note_impl(&db, &id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_note(db: State<'_, Db>, id: String) -> Result<Option<Note>, String> {
     get_note_impl(&db, &id).await.map_err(|e| e.to_string())
 }
@@ -195,4 +240,35 @@ pub async fn set_setting(db: State<'_, Db>, key: String, value: String) -> Resul
     set_setting_impl(&db, &key, &value)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn export_note_markdown(db: State<'_, Db>, id: String) -> Result<String, String> {
+    let note = get_note_impl(&db, &id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("笔记不存在")?;
+
+    let mut md = format!("# {}\n\n", note.title);
+    md.push_str(&format!("> 创建时间: {}\n\n", note.created_at));
+
+    if !note.transcript.is_empty() {
+        md.push_str("## 转写记录\n\n");
+        md.push_str(&note.transcript);
+        md.push_str("\n\n");
+    }
+
+    if !note.summary.is_empty() {
+        md.push_str("## AI 摘要\n\n");
+        md.push_str(&note.summary);
+        md.push_str("\n\n");
+    }
+
+    if !note.body.is_empty() {
+        md.push_str("## 笔记内容\n\n");
+        md.push_str(&note.body);
+        md.push_str("\n");
+    }
+
+    Ok(md)
 }
