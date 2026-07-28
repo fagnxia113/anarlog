@@ -177,6 +177,7 @@ async fn download_stt_models(
         url: &'static str,
         display_name: &'static str,
         kind: &'static str,
+        dest_rel_path: &'static str,
     }
 
     let mut items = vec![
@@ -184,24 +185,28 @@ async fn download_stt_models(
             url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
             display_name: "SenseVoice 模型 (228MB)",
             kind: "tarbz2",
+            dest_rel_path: "",
         },
         DownloadItem {
             url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
             display_name: "VAD 模型 (1.8MB)",
             kind: "file",
+            dest_rel_path: "silero_vad.onnx",
         },
     ];
 
     if include_diarization {
         items.push(DownloadItem {
-            url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
+            url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
             display_name: "说话人分割模型 (5MB)",
             kind: "tarbz2",
+            dest_rel_path: "",
         });
         items.push(DownloadItem {
-            url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.tar.bz2",
+            url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
             display_name: "说话人嵌入模型 (118MB)",
-            kind: "tarbz2",
+            kind: "file",
+            dest_rel_path: "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k/model.onnx",
         });
     }
 
@@ -257,8 +262,10 @@ async fn download_stt_models(
                 .map_err(|e| format!("解压失败: {}", e))?;
             std::fs::remove_file(&temp_path).ok();
         } else {
-            let dest_name = item.url.rsplit('/').next().unwrap_or("model.bin");
-            let dest = model_dir.join(dest_name);
+            let dest = model_dir.join(item.dest_rel_path);
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
             std::fs::rename(&temp_path, &dest).map_err(|e| e.to_string())?;
         }
     }
