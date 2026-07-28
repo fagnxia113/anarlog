@@ -166,8 +166,8 @@ impl SttEngine {
             let mut full_text = String::new();
 
             for seg in &diar_segments {
-                let start_sample = (seg.start * sample_rate as f64) as usize;
-                let end_sample = (seg.end * sample_rate as f64) as usize;
+                let start_sample = (seg.start * sample_rate as f32) as usize;
+                let end_sample = (seg.end * sample_rate as f32) as usize;
                 let end_sample = end_sample.min(samples.len());
 
                 if start_sample >= end_sample {
