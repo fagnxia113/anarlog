@@ -88,6 +88,7 @@ impl SttEngine {
                     max_speech_duration: 600.0,
                     window_size: 512,
                 },
+                ten_vad: TenVadModelConfig::default(),
                 sample_rate: 16000,
                 num_threads: 1,
                 provider: None,
@@ -119,7 +120,7 @@ impl SttEngine {
                         debug: false,
                         provider: None,
                     },
-                    clustering: FastClusteringConfig { num_clusters: None, threshold: 0.5 },
+                    clustering: FastClusteringConfig { num_clusters: 0, threshold: 0.5 },
                     min_duration_on: 0.2,
                     min_duration_off: 0.5,
                 };
@@ -151,12 +152,14 @@ impl SttEngine {
     }
 
     pub fn transcribe(&self, wav_path: &str) -> anyhow::Result<TranscribeResult> {
-        let wave = Wave::read(wav_path).map_err(|e| anyhow::anyhow!("读取音频文件失败: {}", e))?;
+        let wave = Wave::read(wav_path)
+            .ok_or_else(|| anyhow::anyhow!("读取音频文件失败: 文件不存在或格式错误"))?;
         let samples = wave.samples();
         let sample_rate = wave.sample_rate();
 
         if let Some(ref diarizer) = self.diarizer {
-            let diar_result = diarizer.process(samples, sample_rate);
+            let diar_result = diarizer.process(samples)
+                .ok_or_else(|| anyhow::anyhow!("说话人分离处理失败"))?;
             let diar_segments = diar_result.sort_by_start_time();
 
             let mut segments = Vec::new();
@@ -174,7 +177,7 @@ impl SttEngine {
                 let chunk = &samples[start_sample..end_sample];
 
                 let mut stream = self.recognizer.create_stream();
-                stream.accept_waveform(sample_rate, chunk.to_vec());
+                stream.accept_waveform(sample_rate, chunk);
                 self.recognizer.decode(&stream);
                 let text = stream.get_result()
                     .map(|r| r.text.trim().to_string())
@@ -214,7 +217,7 @@ impl SttEngine {
                 self.vad.pop();
 
                 let mut stream = self.recognizer.create_stream();
-                stream.accept_waveform(sample_rate, speech.samples().to_vec());
+                stream.accept_waveform(sample_rate, speech.samples());
                 self.recognizer.decode(&stream);
                 let text = stream.get_result()
                     .map(|r| r.text.trim().to_string())
