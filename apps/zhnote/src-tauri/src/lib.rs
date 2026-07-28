@@ -214,7 +214,7 @@ async fn download_stt_models(
 
         let file_name = rel_path.rsplit('/').next().unwrap_or(rel_path).to_string();
 
-        let resp = client.get(*url).send().await.map_err(|e| format!("下载失败: {}", e))?;
+        let mut resp = client.get(*url).send().await.map_err(|e| format!("下载失败: {}", e))?;
 
         if !resp.status().is_success() {
             return Err(format!("下载失败: HTTP {} ({})", resp.status(), url));
