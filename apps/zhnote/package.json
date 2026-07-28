@@ -1,6 +1,6 @@
 {
   "name": "@zhnote/desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -45,9 +45,12 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@babel/core": "^7.0.0",
+    "@lingui/babel-plugin-lingui-macro": "^6.0.1",
     "@lingui/cli": "^6.0.1",
     "@lingui/format-po": "^6.0.1",
     "@lingui/vite-plugin": "^6.0.1",
+    "@rolldown/plugin-babel": "^0.2.3",
     "@tailwindcss/vite": "^4.2.2",
     "@tanstack/react-router-devtools": "^1.166.13",
     "@tanstack/router-plugin": "^1.167.19",

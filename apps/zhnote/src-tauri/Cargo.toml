@@ -1,9 +1,9 @@
 [package]
 name = "zhnote"
-version = "0.1.1"
-description = "Chinese-first smart notes"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.94.0"
+description = "Chinese-first smart notes"
 
 [lib]
 name = "zhnote_lib"
@@ -15,6 +15,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.5", features = [] }
 
 [dependencies]
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6.0.0"
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "multipart", "rustls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate"] }
 tauri = { version = "2.10", features = ["devtools"] }
 tauri-plugin-dialog = "2.7"
 tauri-plugin-fs = "2.4"
@@ -22,23 +29,11 @@ tauri-plugin-http = "2.5"
 tauri-plugin-os = "2.3"
 tauri-plugin-process = "2.3"
 tauri-plugin-store = "2.4.3"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tokio = { version = "1", features = ["full"] }
-sqlx = { version = "0.9", default-features = false, features = [
-  "runtime-tokio",
-  "sqlite",
-  "macros",
-  "migrate",
-] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "multipart", "rustls"] }
-uuid = { version = "1", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
-anyhow = "1"
 thiserror = "2"
+tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-dirs = "6.0.0"
+uuid = { version = "1", features = ["v4", "serde"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
