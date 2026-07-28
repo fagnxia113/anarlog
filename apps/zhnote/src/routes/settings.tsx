@@ -18,13 +18,23 @@ const createDefaultLlm = (): LlmConfig => ({
   model: "gpt-4o-mini",
 });
 const createDefaultStt = (): SttConfig => ({
-  base_url: "https://api.openai.com/v1",
-  api_key: "",
+  mode: "cloud",
   language: "zh",
+  diarization: false,
+  cloud_base_url: "https://api.openai.com/v1",
+  cloud_api_key: "",
+  cloud_model: "whisper-1",
 });
 
 const inputClass =
   "rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm focus:border-[var(--color-primary)] focus:outline-none";
+
+const CLOUD_MODELS = [
+  { value: "whisper-1", label: "Whisper-1 (OpenAI)" },
+  { value: "whisper-large-v3", label: "Whisper Large V3" },
+  { value: "whisper-large-v3-turbo", label: "Whisper Large V3 Turbo" },
+  { value: "distil-whisper-large-v3-en", label: "Distil Whisper Large V3 EN" },
+];
 
 function SettingsPage() {
   const { i18n } = useLingui();
@@ -71,9 +81,12 @@ function SettingsPage() {
   }, [llmQuery.data]);
   useEffect(() => {
     if (sttQuery.data) {
-      form.setFieldValue("stt.base_url", sttQuery.data.base_url);
-      form.setFieldValue("stt.api_key", sttQuery.data.api_key);
+      form.setFieldValue("stt.mode", sttQuery.data.mode);
       form.setFieldValue("stt.language", sttQuery.data.language);
+      form.setFieldValue("stt.diarization", sttQuery.data.diarization);
+      form.setFieldValue("stt.cloud_base_url", sttQuery.data.cloud_base_url);
+      form.setFieldValue("stt.cloud_api_key", sttQuery.data.cloud_api_key);
+      form.setFieldValue("stt.cloud_model", sttQuery.data.cloud_model);
     }
   }, [sttQuery.data]);
 
@@ -92,6 +105,8 @@ function SettingsPage() {
       <div className="p-6 text-[var(--color-text-muted)]">{i18n._("common.loading")}</div>
     );
   }
+
+  const isLocalMode = form.state.values.stt.mode === "local";
 
   return (
     <div className="h-full overflow-auto">
@@ -185,31 +200,98 @@ function SettingsPage() {
 
           <section className="flex flex-col gap-3">
             <h2 className="text-sm font-semibold">{i18n._("settings.stt")}</h2>
-            <form.Field name="stt.base_url">
+
+            <form.Field name="stt.mode">
               {(field) => (
                 <label className="flex flex-col gap-1 text-sm">
-                  <span>{i18n._("settings.ai.base_url")}</span>
-                  <input
+                  <span>{i18n._("settings.stt.mode")}</span>
+                  <select
                     className={inputClass}
                     value={field.state.value}
                     onChange={(e) => field.handleChange(e.target.value)}
-                  />
+                  >
+                    <option value="cloud">{i18n._("settings.stt.mode.cloud")}</option>
+                    <option value="local">{i18n._("settings.stt.mode.local")}</option>
+                  </select>
                 </label>
               )}
             </form.Field>
-            <form.Field name="stt.api_key">
-              {(field) => (
-                <label className="flex flex-col gap-1 text-sm">
-                  <span>{i18n._("settings.ai.api_key")}</span>
-                  <input
-                    type="password"
-                    className={inputClass}
-                    value={field.state.value}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                  />
-                </label>
-              )}
-            </form.Field>
+
+            {isLocalMode && (
+              <p className="text-xs text-[var(--color-text-muted)]">
+                {i18n._("settings.stt.local_hint")}
+              </p>
+            )}
+
+            {isLocalMode && (
+              <form.Field name="stt.diarization">
+                {(field) => (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.checked)}
+                      className="rounded"
+                    />
+                    <div className="flex flex-col">
+                      <span>{i18n._("settings.stt.diarization")}</span>
+                      <span className="text-xs text-[var(--color-text-muted)]">
+                        {i18n._("settings.stt.diarization.hint")}
+                      </span>
+                    </div>
+                  </label>
+                )}
+              </form.Field>
+            )}
+
+            {!isLocalMode && (
+              <>
+                <form.Field name="stt.cloud_base_url">
+                  {(field) => (
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span>{i18n._("settings.stt.base_url")}</span>
+                      <input
+                        className={inputClass}
+                        value={field.state.value}
+                        onChange={(e) => field.handleChange(e.target.value)}
+                      />
+                    </label>
+                  )}
+                </form.Field>
+                <form.Field name="stt.cloud_api_key">
+                  {(field) => (
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span>{i18n._("settings.stt.api_key")}</span>
+                      <input
+                        type="password"
+                        className={inputClass}
+                        value={field.state.value}
+                        onChange={(e) => field.handleChange(e.target.value)}
+                      />
+                    </label>
+                  )}
+                </form.Field>
+                <form.Field name="stt.cloud_model">
+                  {(field) => (
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span>{i18n._("settings.stt.model")}</span>
+                      <select
+                        className={inputClass}
+                        value={field.state.value}
+                        onChange={(e) => field.handleChange(e.target.value)}
+                      >
+                        {CLOUD_MODELS.map((m) => (
+                          <option key={m.value} value={m.value}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </form.Field>
+              </>
+            )}
+
             <form.Field name="stt.language">
               {(field) => (
                 <label className="flex flex-col gap-1 text-sm">

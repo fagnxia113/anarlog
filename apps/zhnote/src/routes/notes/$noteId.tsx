@@ -5,12 +5,65 @@ import { useLingui } from "@lingui/react/macro";
 import { useEffect, useRef, useState } from "react";
 
 import { Editor } from "@/components/Editor";
-import { api } from "@/lib/tauri";
+import { api, type SpeakerSegment } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/notes/$noteId")({
   component: NoteEditPage,
 });
+
+const SPEAKER_COLORS = [
+  "text-blue-600",
+  "text-green-600",
+  "text-purple-600",
+  "text-orange-600",
+  "text-pink-600",
+  "text-teal-600",
+];
+
+function formatMs(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+function TranscriptView({ transcript, segmentsJson }: { transcript: string; segmentsJson: string }) {
+  const { i18n } = useLingui();
+
+  if (!transcript) return null;
+
+  let segments: SpeakerSegment[] = [];
+  try {
+    segments = JSON.parse(segmentsJson);
+  } catch {
+    // ignore
+  }
+
+  if (segments.length > 0 && segments.some((s) => s.speaker > 0)) {
+    const speakerSet = [...new Set(segments.map((s) => s.speaker))];
+
+    return (
+      <div className="flex flex-col gap-1">
+        {segments.map((seg, i) => (
+          <div key={i} className="flex gap-2 text-sm">
+            <span className={cn("shrink-0 font-medium", SPEAKER_COLORS[seg.speaker % SPEAKER_COLORS.length])}>
+              {i18n._("session.speaker")}{seg.speaker}
+            </span>
+            <span className="text-[var(--color-text-muted)]">{formatMs(seg.start_ms)}</span>
+            <span className="text-[var(--color-text)]">{seg.text}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="whitespace-pre-wrap text-sm text-[var(--color-text-muted)]">
+      {transcript}
+    </div>
+  );
+}
 
 function NoteEditPage() {
   const { noteId } = Route.useParams();
@@ -61,8 +114,9 @@ function NoteEditPage() {
   const runPipeline = async (audioPath: string) => {
     setIsTranscribing(true);
     try {
-      const transcript = await api.transcribeAudio(audioPath);
-      await api.saveTranscript(noteId, transcript);
+      const result = await api.transcribeAudio(audioPath);
+      await api.saveTranscript(noteId, result.text);
+      await api.saveSegments(noteId, JSON.stringify(result.segments));
       await queryClient.invalidateQueries({ queryKey: ["note", noteId] });
     } finally {
       setIsTranscribing(false);
@@ -210,9 +264,9 @@ function NoteEditPage() {
               {i18n._("session.transcript")}
             </button>
             {transcriptOpen && (
-              <div className="whitespace-pre-wrap text-sm text-[var(--color-text-muted)]">
-                {isTranscribing ? i18n._("session.transcribing") : note.transcript}
-              </div>
+              isTranscribing
+                ? <div className="text-sm text-[var(--color-text-muted)]">{i18n._("session.transcribing")}</div>
+                : <TranscriptView transcript={note.transcript} segmentsJson={note.segments} />
             )}
           </section>
         </aside>

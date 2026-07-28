@@ -5,6 +5,7 @@ export interface Note {
   title: string;
   body: string;
   transcript: string;
+  segments: string;
   summary: string;
   created_at: string;
   updated_at: string;
@@ -17,9 +18,24 @@ export interface LlmConfig {
 }
 
 export interface SttConfig {
-  base_url: string;
-  api_key: string;
+  mode: string;
   language: string;
+  diarization: boolean;
+  cloud_base_url: string;
+  cloud_api_key: string;
+  cloud_model: string;
+}
+
+export interface SpeakerSegment {
+  speaker: number;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+}
+
+export interface TranscribeResult {
+  text: string;
+  segments: SpeakerSegment[];
 }
 
 export const api = {
@@ -31,6 +47,8 @@ export const api = {
   deleteNote: (id: string) => invoke<void>("delete_note", { id }),
   saveTranscript: (id: string, transcript: string) =>
     invoke<void>("save_transcript", { id, transcript }),
+  saveSegments: (id: string, segments: string) =>
+    invoke<void>("save_segments", { id, segments }),
   saveSummary: (id: string, summary: string) =>
     invoke<void>("save_summary", { id, summary }),
   getSetting: (key: string) => invoke<string | null>("get_setting", { key }),
@@ -41,5 +59,5 @@ export const api = {
   testLlmConnection: (config: LlmConfig) =>
     invoke<void>("test_llm_connection", { config }),
   transcribeAudio: (audioPath: string) =>
-    invoke<string>("transcribe_audio", { audioPath }),
+    invoke<TranscribeResult>("transcribe_audio", { audioPath }),
 };

@@ -10,6 +10,7 @@ pub struct Note {
     pub title: String,
     pub body: String,
     pub transcript: String,
+    pub segments: String,
     pub summary: String,
     pub created_at: String,
     pub updated_at: String,
@@ -21,6 +22,7 @@ fn row_to_note(r: sqlx::sqlite::SqliteRow) -> Note {
         title: r.get("title"),
         body: r.get("body"),
         transcript: r.get("transcript"),
+        segments: r.try_get("segments").unwrap_or_default(),
         summary: r.get("summary"),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
@@ -29,7 +31,7 @@ fn row_to_note(r: sqlx::sqlite::SqliteRow) -> Note {
 
 pub async fn list_notes_impl(db: &Db) -> anyhow::Result<Vec<Note>> {
     let rows = sqlx::query(
-        "SELECT id, title, body, transcript, summary, created_at, updated_at FROM notes WHERE deleted_at IS NULL ORDER BY updated_at DESC",
+        "SELECT id, title, body, transcript, segments, summary, created_at, updated_at FROM notes WHERE deleted_at IS NULL ORDER BY updated_at DESC",
     )
     .fetch_all(db.pool())
     .await?;
@@ -38,7 +40,7 @@ pub async fn list_notes_impl(db: &Db) -> anyhow::Result<Vec<Note>> {
 
 pub async fn get_note_impl(db: &Db, id: &str) -> anyhow::Result<Option<Note>> {
     let row = sqlx::query(
-        "SELECT id, title, body, transcript, summary, created_at, updated_at FROM notes WHERE id = ? AND deleted_at IS NULL",
+        "SELECT id, title, body, transcript, segments, summary, created_at, updated_at FROM notes WHERE id = ? AND deleted_at IS NULL",
     )
     .bind(id)
     .fetch_optional(db.pool())
@@ -89,6 +91,15 @@ pub async fn delete_note_impl(db: &Db, id: &str) -> anyhow::Result<()> {
 pub async fn save_transcript_impl(db: &Db, id: &str, transcript: &str) -> anyhow::Result<()> {
     sqlx::query("UPDATE notes SET transcript = ?, updated_at = datetime('now') WHERE id = ?")
         .bind(transcript)
+        .bind(id)
+        .execute(db.pool())
+        .await?;
+    Ok(())
+}
+
+pub async fn save_segments_impl(db: &Db, id: &str, segments: &str) -> anyhow::Result<()> {
+    sqlx::query("UPDATE notes SET segments = ?, updated_at = datetime('now') WHERE id = ?")
+        .bind(segments)
         .bind(id)
         .execute(db.pool())
         .await?;
@@ -156,6 +167,13 @@ pub async fn delete_note(db: State<'_, Db>, id: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn save_transcript(db: State<'_, Db>, id: String, transcript: String) -> Result<(), String> {
     save_transcript_impl(&db, &id, &transcript)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_segments(db: State<'_, Db>, id: String, segments: String) -> Result<(), String> {
+    save_segments_impl(&db, &id, &segments)
         .await
         .map_err(|e| e.to_string())
 }

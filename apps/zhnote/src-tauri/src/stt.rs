@@ -1,17 +1,27 @@
 use serde::{Deserialize, Serialize};
 use sherpa_onnx::*;
+use std::path::PathBuf;
+use std::sync::Mutex;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SttConfig {
+    pub mode: String,
     pub language: String,
     pub diarization: bool,
+    pub cloud_base_url: String,
+    pub cloud_api_key: String,
+    pub cloud_model: String,
 }
 
 impl Default for SttConfig {
     fn default() -> Self {
         Self {
+            mode: "cloud".into(),
             language: "zh".into(),
-            diarization: true,
+            diarization: false,
+            cloud_base_url: "https://api.openai.com/v1".into(),
+            cloud_api_key: String::new(),
+            cloud_model: "whisper-1".into(),
         }
     }
 }
@@ -28,6 +38,11 @@ pub struct SpeakerSegment {
 pub struct TranscribeResult {
     pub text: String,
     pub segments: Vec<SpeakerSegment>,
+}
+
+pub struct SttState {
+    pub engine: Mutex<Option<SttEngine>>,
+    pub model_dir: PathBuf,
 }
 
 pub struct SttEngine {
@@ -66,21 +81,21 @@ impl SttEngine {
 
         let recognizer = OfflineRecognizer::new(recognizer_config)?;
 
-        let vad_config = VoiceActivityDetectorConfig {
-            model: model_dir
-                .join("silero_vad.onnx")
-                .to_str()
-                .unwrap_or_default()
-                .to_string(),
-            threshold: 0.5,
-            min_silence_duration: 0.3,
-            min_speech_duration: 0.25,
-            max_speech_duration: 600.0,
-            window_size: 512,
-            ..Default::default()
+        let vad_path = model_dir.join("silero_vad.onnx");
+        let vad = if vad_path.exists() {
+            let vad_config = VoiceActivityDetectorConfig {
+                model: vad_path.to_str().unwrap_or_default().to_string(),
+                threshold: 0.5,
+                min_silence_duration: 0.3,
+                min_speech_duration: 0.25,
+                max_speech_duration: 600.0,
+                window_size: 512,
+                ..Default::default()
+            };
+            VoiceActivityDetector::new(vad_config)?
+        } else {
+            anyhow::bail!("VAD 模型文件不存在: {}", vad_path.display());
         };
-
-        let vad = VoiceActivityDetector::new(vad_config)?;
 
         let diarizer = if enable_diarization {
             let seg_model = model_dir.join("sherpa-onnx-pyannote-segmentation-3-0");
@@ -118,7 +133,7 @@ impl SttEngine {
             None
         };
 
-        tracing::info!("STT 引擎初始化完成 (SenseVoice, diarization={})", diarizer.is_some());
+        tracing::info!("本地 STT 引擎初始化完成 (diarization={})", diarizer.is_some());
 
         Ok(Self {
             recognizer,
@@ -214,4 +229,67 @@ impl SttEngine {
             })
         }
     }
+}
+
+pub async fn transcribe_cloud(
+    config: &SttConfig,
+    audio_bytes: Vec<u8>,
+    filename: String,
+) -> anyhow::Result<TranscribeResult> {
+    let file_part = reqwest::multipart::Part::bytes(audio_bytes)
+        .file_name(filename)
+        .mime_str("audio/webm")?;
+
+    let form = reqwest::multipart::Form::new()
+        .part("file", file_part)
+        .text("model", config.cloud_model.clone())
+        .text("language", config.language.clone())
+        .text("response_format", "verbose_json");
+
+    let client = reqwest::Client::new();
+    let url = format!(
+        "{}/audio/transcriptions",
+        config.cloud_base_url.trim_end_matches('/')
+    );
+
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", config.cloud_api_key))
+        .multipart(form)
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        anyhow::bail!("云端转写请求失败 ({}): {}", status, text);
+    }
+
+    let resp_json: serde_json::Value = resp.json().await?;
+    let text = resp_json["text"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+
+    let segments: Vec<SpeakerSegment> = resp_json["segments"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| {
+                    let seg_text = s["text"].as_str()?.trim().to_string();
+                    if seg_text.is_empty() {
+                        return None;
+                    }
+                    Some(SpeakerSegment {
+                        speaker: 0,
+                        start_ms: (s["start"].as_f64()? * 1000.0) as i64,
+                        end_ms: (s["end"].as_f64()? * 1000.0) as i64,
+                        text: seg_text,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(TranscribeResult { text, segments })
 }

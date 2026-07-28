@@ -4,6 +4,7 @@ mod db;
 mod stt;
 
 use db::Db;
+use stt::SttState;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 use tracing::Level;
@@ -51,7 +52,11 @@ async fn test_llm_connection(config: ai::LlmConfig) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn transcribe_audio(db: tauri::State<'_, Db>, audio_path: String) -> Result<String, String> {
+async fn transcribe_audio(
+    db: tauri::State<'_, Db>,
+    stt_state: tauri::State<'_, SttState>,
+    audio_path: String,
+) -> Result<stt::TranscribeResult, String> {
     let stt_json = commands::get_setting_impl(&db, "stt_config")
         .await
         .map_err(|e| e.to_string())?
@@ -60,18 +65,57 @@ async fn transcribe_audio(db: tauri::State<'_, Db>, audio_path: String) -> Resul
     let config: stt::SttConfig =
         serde_json::from_str(&stt_json).map_err(|e| e.to_string())?;
 
-    let bytes = std::fs::read(&audio_path)
-        .map_err(|e| format!("读取音频文件失败: {}", e))?;
+    if config.mode == "local" {
+        let mut guard = stt_state.engine.lock().map_err(|e| e.to_string())?;
 
-    let filename = std::path::Path::new(&audio_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("audio.wav")
-        .to_string();
+        if guard.is_none() {
+            let engine = stt::SttEngine::new(&stt_state.model_dir, config.diarization)
+                .map_err(|e| format!("本地引擎初始化失败: {}", e))?;
+            *guard = Some(engine);
+        }
 
-    stt::transcribe(&config, bytes, filename)
-        .await
-        .map_err(|e| e.to_string())
+        let engine = guard.as_ref().ok_or("本地引擎未初始化")?;
+
+        let wav_path = if audio_path.ends_with(".wav") {
+            audio_path.clone()
+        } else {
+            let wav_path = audio_path.rsplit_once('.').map_or(
+                format!("{}.wav", audio_path),
+                |(stem, _)| format!("{}.wav", stem),
+            );
+            convert_to_wav(&audio_path, &wav_path)
+                .map_err(|e| format!("音频格式转换失败: {}", e))?;
+            wav_path
+        };
+
+        engine.transcribe(&wav_path).map_err(|e| e.to_string())
+    } else {
+        let bytes = std::fs::read(&audio_path)
+            .map_err(|e| format!("读取音频文件失败: {}", e))?;
+
+        let filename = std::path::Path::new(&audio_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("audio.webm")
+            .to_string();
+
+        stt::transcribe_cloud(&config, bytes, filename)
+            .await
+            .map_err(|e| e.to_string())
+    }
+}
+
+fn convert_to_wav(input: &str, output: &str) -> anyhow::Result<()> {
+    let status = std::process::Command::new("ffmpeg")
+        .args(["-y", "-i", input, "-ar", "16000", "-ac", "1", "-f", "wav", output])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()?;
+
+    if !status.success() {
+        anyhow::bail!("ffmpeg 转换失败");
+    }
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -106,12 +150,11 @@ pub fn run() {
             };
             tracing::info!("app_data_dir = {}", app_data_dir.display());
 
-            let db = tauri::async_runtime::block_on(db::open_db(app_data_dir));
+            let db = tauri::async_runtime::block_on(db::open_db(app_data_dir.clone()));
             match db {
                 Ok(db) => {
                     tracing::info!("数据库初始化成功");
                     app_handle.manage(db);
-                    Ok(())
                 }
                 Err(e) => {
                     tracing::error!("数据库初始化失败: {}", e);
@@ -126,6 +169,16 @@ pub fn run() {
                     std::process::exit(1);
                 }
             }
+
+            let model_dir = app_data_dir.join("models");
+            let _ = std::fs::create_dir_all(&model_dir);
+
+            app_handle.manage(SttState {
+                engine: std::sync::Mutex::new(None),
+                model_dir,
+            });
+
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_notes,
@@ -135,6 +188,7 @@ pub fn run() {
             commands::delete_note,
             commands::save_transcript,
             commands::save_summary,
+            commands::save_segments,
             commands::get_setting,
             commands::set_setting,
             generate_summary,
