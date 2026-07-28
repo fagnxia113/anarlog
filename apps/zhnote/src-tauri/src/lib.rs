@@ -173,55 +173,67 @@ async fn download_stt_models(
 
     let model_dir = stt_state.model_dir.clone();
 
-    let mut files: Vec<(&str, &str)> = vec![
-        (
-            "https://huggingface.co/k2-fsa/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/resolve/main/model.int8.onnx",
-            "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx",
-        ),
-        (
-            "https://huggingface.co/k2-fsa/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/resolve/main/tokens.txt",
-            "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt",
-        ),
-        (
-            "https://huggingface.co/k2-fsa/sherpa-onnx-vad-models/resolve/main/silero_vad.onnx",
-            "silero_vad.onnx",
-        ),
+    struct DownloadItem {
+        url: &'static str,
+        display_name: &'static str,
+        kind: &'static str,
+    }
+
+    let mut items = vec![
+        DownloadItem {
+            url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+            display_name: "SenseVoice 模型 (228MB)",
+            kind: "tarbz2",
+        },
+        DownloadItem {
+            url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+            display_name: "VAD 模型 (1.8MB)",
+            kind: "file",
+        },
     ];
 
     if include_diarization {
-        files.push((
-            "https://huggingface.co/k2-fsa/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx",
-            "sherpa-onnx-pyannote-segmentation-3-0/model.onnx",
-        ));
-        files.push((
-            "https://huggingface.co/3dspeaker/speech_eres2net_base_sv_zh-cn_3dspeaker_16k/resolve/main/model.onnx",
-            "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k/model.onnx",
-        ));
+        items.push(DownloadItem {
+            url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
+            display_name: "说话人分割模型 (5MB)",
+            kind: "tarbz2",
+        });
+        items.push(DownloadItem {
+            url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.tar.bz2",
+            display_name: "说话人嵌入模型 (118MB)",
+            kind: "tarbz2",
+        });
     }
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(600))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .user_agent("Zhnote/0.1.6")
         .build()
         .map_err(|e| e.to_string())?;
 
-    let file_count = files.len();
+    let item_count = items.len();
 
-    for (i, (url, rel_path)) in files.iter().enumerate() {
-        let dest = model_dir.join(rel_path);
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
+    for (i, item) in items.iter().enumerate() {
+        let _ = app_handle.emit("stt-download-progress", DownloadProgress {
+            file_name: item.display_name.to_string(),
+            current: 0,
+            total: 0,
+            percent: 0,
+            file_index: i,
+            file_count: item_count,
+        });
 
-        let file_name = rel_path.rsplit('/').next().unwrap_or(rel_path).to_string();
-
-        let mut resp = client.get(*url).send().await.map_err(|e| format!("下载失败: {}", e))?;
-
+        let resp = client.get(item.url).send().await.map_err(|e| format!("下载失败: {}", e))?;
         if !resp.status().is_success() {
-            return Err(format!("下载失败: HTTP {} ({})", resp.status(), url));
+            return Err(format!("下载失败: HTTP {} ({})", resp.status(), item.url));
         }
 
         let total = resp.content_length().unwrap_or(0);
-        let mut file = tokio::fs::File::create(&dest).await.map_err(|e| e.to_string())?;
+        let temp_path = model_dir.join(format!("__download_{}", i));
+
+        let mut file = tokio::fs::File::create(&temp_path).await.map_err(|e| e.to_string())?;
+        let mut resp = resp;
         let mut downloaded: u64 = 0;
 
         while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
@@ -230,19 +242,42 @@ async fn download_stt_models(
 
             let percent = if total > 0 { (downloaded * 100 / total) as u32 } else { 0 };
             let _ = app_handle.emit("stt-download-progress", DownloadProgress {
-                file_name: file_name.clone(),
+                file_name: item.display_name.to_string(),
                 current: downloaded,
                 total,
                 percent,
                 file_index: i,
-                file_count,
+                file_count: item_count,
             });
+        }
+        drop(file);
+
+        if item.kind == "tarbz2" {
+            extract_tar_bz2(&temp_path, &model_dir)
+                .map_err(|e| format!("解压失败: {}", e))?;
+            std::fs::remove_file(&temp_path).ok();
+        } else {
+            let dest_name = item.url.rsplit('/').next().unwrap_or("model.bin");
+            let dest = model_dir.join(dest_name);
+            std::fs::rename(&temp_path, &dest).map_err(|e| e.to_string())?;
         }
     }
 
     let mut guard = stt_state.engine.lock().map_err(|e| e.to_string())?;
     *guard = None;
 
+    Ok(())
+}
+
+fn extract_tar_bz2(archive_path: &std::path::Path, dest_dir: &std::path::Path) -> anyhow::Result<()> {
+    use bzip2::read::BzDecoder;
+    use std::fs::File;
+    use std::io::BufReader;
+
+    let file = File::open(archive_path)?;
+    let bz = BzDecoder::new(BufReader::new(file));
+    let mut archive = tar::Archive::new(bz);
+    archive.unpack(dest_dir)?;
     Ok(())
 }
 

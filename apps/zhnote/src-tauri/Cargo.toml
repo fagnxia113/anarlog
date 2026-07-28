@@ -16,9 +16,11 @@ tauri-build = { version = "2.5", features = [] }
 
 [dependencies]
 anyhow = "1"
+bzip2 = "0.5"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "6.0.0"
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "multipart", "rustls"] }
+tar = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sherpa-onnx = "1.13"
