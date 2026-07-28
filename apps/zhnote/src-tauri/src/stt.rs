@@ -65,34 +65,36 @@ impl SttEngine {
             );
         }
 
-        let recognizer_config = OfflineRecognizerConfig {
-            model_config: OfflineModelConfig {
-                sense_voice: SenseVoiceModelConfig {
-                    model: model_onnx.to_str().unwrap_or_default().to_string(),
-                    language: "auto".to_string(),
-                    use_itn: true,
-                },
-                tokens: tokens_txt.to_str().unwrap_or_default().to_string(),
-                num_threads: 4,
-                ..Default::default()
-            },
-            ..Default::default()
+        let mut recognizer_config = OfflineRecognizerConfig::default();
+        recognizer_config.model_config.sense_voice = OfflineSenseVoiceModelConfig {
+            model: Some(model_onnx.to_str().unwrap_or_default().to_string()),
+            language: Some("auto".to_string()),
+            use_itn: true,
         };
+        recognizer_config.model_config.tokens = Some(tokens_txt.to_str().unwrap_or_default().to_string());
+        recognizer_config.model_config.num_threads = 4;
 
-        let recognizer = OfflineRecognizer::new(recognizer_config)?;
+        let recognizer = OfflineRecognizer::create(&recognizer_config)
+            .ok_or_else(|| anyhow::anyhow!("无法创建 SenseVoice 识别器"))?;
 
         let vad_path = model_dir.join("silero_vad.onnx");
         let vad = if vad_path.exists() {
-            let vad_config = VoiceActivityDetectorConfig {
-                model: vad_path.to_str().unwrap_or_default().to_string(),
-                threshold: 0.5,
-                min_silence_duration: 0.3,
-                min_speech_duration: 0.25,
-                max_speech_duration: 600.0,
-                window_size: 512,
-                ..Default::default()
+            let vad_config = VadModelConfig {
+                silero_vad: SileroVadModelConfig {
+                    model: Some(vad_path.to_str().unwrap_or_default().to_string()),
+                    threshold: 0.5,
+                    min_silence_duration: 0.3,
+                    min_speech_duration: 0.25,
+                    max_speech_duration: 600.0,
+                    window_size: 512,
+                },
+                sample_rate: 16000,
+                num_threads: 1,
+                provider: None,
+                debug: false,
             };
-            VoiceActivityDetector::new(vad_config)?
+            VoiceActivityDetector::create(&vad_config, 30.0)
+                .ok_or_else(|| anyhow::anyhow!("无法创建 VAD 检测器"))?
         } else {
             anyhow::bail!("VAD 模型文件不存在: {}", vad_path.display());
         };
@@ -105,23 +107,29 @@ impl SttEngine {
                 let diar_config = OfflineSpeakerDiarizationConfig {
                     segmentation: OfflineSpeakerSegmentationModelConfig {
                         pyannote: OfflineSpeakerSegmentationPyannoteModelConfig {
-                            model: seg_model.to_str().unwrap_or_default().to_string(),
+                            model: Some(seg_model.to_str().unwrap_or_default().to_string()),
                         },
-                        ..Default::default()
+                        num_threads: 1,
+                        debug: false,
+                        provider: None,
                     },
                     embedding: SpeakerEmbeddingExtractorConfig {
-                        model: emb_model.to_str().unwrap_or_default().to_string(),
-                        ..Default::default()
+                        model: Some(emb_model.to_str().unwrap_or_default().to_string()),
+                        num_threads: 1,
+                        debug: false,
+                        provider: None,
                     },
-                    ..Default::default()
+                    clustering: FastClusteringConfig { num_clusters: None, threshold: 0.5 },
+                    min_duration_on: 0.2,
+                    min_duration_off: 0.5,
                 };
-                match OfflineSpeakerDiarization::new(diar_config) {
-                    Ok(d) => {
+                match OfflineSpeakerDiarization::create(&diar_config) {
+                    Some(d) => {
                         tracing::info!("说话人分离模型加载成功");
                         Some(d)
                     }
-                    Err(e) => {
-                        tracing::warn!("说话人分离模型加载失败: {}, 将不启用说话人分离", e);
+                    None => {
+                        tracing::warn!("说话人分离模型创建返回 None, 将不启用说话人分离");
                         None
                     }
                 }
@@ -143,30 +151,34 @@ impl SttEngine {
     }
 
     pub fn transcribe(&self, wav_path: &str) -> anyhow::Result<TranscribeResult> {
-        let wave = Wave::from_wav_file(wav_path)?;
+        let wave = Wave::read(wav_path).map_err(|e| anyhow::anyhow!("读取音频文件失败: {}", e))?;
+        let samples = wave.samples();
+        let sample_rate = wave.sample_rate();
 
         if let Some(ref diarizer) = self.diarizer {
-            let diar_result = diarizer.process(&wave.samples, wave.sample_rate);
+            let diar_result = diarizer.process(samples, sample_rate);
+            let diar_segments = diar_result.sort_by_start_time();
 
             let mut segments = Vec::new();
             let mut full_text = String::new();
 
-            for seg in &diar_result.segments {
-                let start_sample = (seg.start * wave.sample_rate as f64) as usize;
-                let end_sample = (seg.end * wave.sample_rate as f64) as usize;
-                let end_sample = end_sample.min(wave.samples.len());
+            for seg in &diar_segments {
+                let start_sample = (seg.start * sample_rate as f64) as usize;
+                let end_sample = (seg.end * sample_rate as f64) as usize;
+                let end_sample = end_sample.min(samples.len());
 
                 if start_sample >= end_sample {
                     continue;
                 }
 
-                let chunk = &wave.samples[start_sample..end_sample];
+                let chunk = &samples[start_sample..end_sample];
 
                 let mut stream = self.recognizer.create_stream();
-                stream.accept_waveform(wave.sample_rate, chunk.to_vec());
-                self.recognizer.decode(&mut stream);
-                let result = self.recognizer.get_result(&mut stream);
-                let text = result.text.trim().to_string();
+                stream.accept_waveform(sample_rate, chunk.to_vec());
+                self.recognizer.decode(&stream);
+                let text = stream.get_result()
+                    .map(|r| r.text.trim().to_string())
+                    .unwrap_or_default();
 
                 if !text.is_empty() {
                     if !full_text.is_empty() {
@@ -188,25 +200,29 @@ impl SttEngine {
                 segments,
             })
         } else {
-            self.vad.accept_waveform(wave.sample_rate, wave.samples.clone());
+            self.vad.accept_waveform(samples);
 
             let mut segments = Vec::new();
             let mut full_text = String::new();
             let mut offset_ms: i64 = 0;
 
-            while !self.vad.empty() {
-                let speech = self.vad.front();
+            while !self.vad.is_empty() {
+                let speech = match self.vad.front() {
+                    Some(s) => s,
+                    None => break,
+                };
                 self.vad.pop();
 
                 let mut stream = self.recognizer.create_stream();
-                stream.accept_waveform(wave.sample_rate, speech.samples().to_vec());
-                self.recognizer.decode(&mut stream);
-                let result = self.recognizer.get_result(&mut stream);
-                let text = result.text.trim().to_string();
+                stream.accept_waveform(sample_rate, speech.samples().to_vec());
+                self.recognizer.decode(&stream);
+                let text = stream.get_result()
+                    .map(|r| r.text.trim().to_string())
+                    .unwrap_or_default();
 
                 if !text.is_empty() {
-                    let start_ms = (speech.start() as f64 / wave.sample_rate as f64 * 1000.0) as i64;
-                    let dur_ms = (speech.samples().len() as f64 / wave.sample_rate as f64 * 1000.0) as i64;
+                    let start_ms = (speech.start() as f64 / sample_rate as f64 * 1000.0) as i64;
+                    let dur_ms = (speech.samples().len() as f64 / sample_rate as f64 * 1000.0) as i64;
 
                     if !full_text.is_empty() {
                         full_text.push('\n');
@@ -220,7 +236,7 @@ impl SttEngine {
                         text,
                     });
                 }
-                offset_ms += (speech.samples().len() as f64 / wave.sample_rate as f64 * 1000.0) as i64;
+                offset_ms += (speech.samples().len() as f64 / sample_rate as f64 * 1000.0) as i64;
             }
 
             Ok(TranscribeResult {
