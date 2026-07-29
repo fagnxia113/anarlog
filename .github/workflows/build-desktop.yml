@@ -29,6 +29,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Build UI package
+        run: pnpm -F @hypr/ui build
+
       - name: Build frontend
         run: pnpm -F @hypr/desktop build
 
