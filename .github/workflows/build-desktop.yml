@@ -38,6 +38,8 @@ jobs:
       - name: Build Tauri app
         run: pnpm exec tauri build --no-sign
         working-directory: apps/desktop
+        env:
+          POSTHOG_API_KEY: phc_local_smoke
 
       - name: Upload NSIS installer
         uses: actions/upload-artifact@v4
