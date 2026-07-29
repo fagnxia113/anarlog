@@ -19,6 +19,7 @@ import { Header, useEditorTabs } from "./header";
 import { RawEditor } from "./raw";
 import { SearchBar } from "./search/bar";
 import { useSearch } from "./search/context";
+import { SummaryPreview } from "./summary-preview";
 import { Transcript } from "./transcript";
 
 import {
@@ -199,6 +200,16 @@ const NoteInputContent = forwardRef<
       [commitTabChange, currentTab, onBeforeTabChange, renderedCurrentTab],
     );
 
+    const handleOpenSummary = useCallback(() => {
+      const firstEnhanced = editorTabs.find(
+        (tab): tab is Extract<TabEditorView, { type: "enhanced" }> =>
+          tab.type === "enhanced",
+      );
+      if (firstEnhanced) {
+        handleTabChange(firstEnhanced);
+      }
+    }, [editorTabs, handleTabChange]);
+
     const handleAdjacentViewShortcut = useCallback(
       (direction: "previous" | "next") => {
         if (editorTabs.length <= 1) {
@@ -284,6 +295,10 @@ const NoteInputContent = forwardRef<
         return;
       }
 
+      if (target.closest("[data-summary-preview]") !== null) {
+        return;
+      }
+
       if (
         target.closest(
           "button, a, input, textarea, select, [role='button'], [contenteditable='true']",
@@ -361,15 +376,21 @@ const NoteInputContent = forwardRef<
               />
             )}
             {renderedCurrentTab.type === "raw" && (
-              <RawEditor
-                ref={internalEditorRef}
-                sessionId={sessionId}
-                rawMd={rawMd}
-                sessionTitle={sessionTitle}
-                onNavigateToTitle={onNavigateToTitle}
-                onViewReady={handleSessionViewReady}
-                onViewDisposed={handleSessionViewDisposed}
-              />
+              <>
+                <RawEditor
+                  ref={internalEditorRef}
+                  sessionId={sessionId}
+                  rawMd={rawMd}
+                  sessionTitle={sessionTitle}
+                  onNavigateToTitle={onNavigateToTitle}
+                  onViewReady={handleSessionViewReady}
+                  onViewDisposed={handleSessionViewDisposed}
+                />
+                <SummaryPreview
+                  sessionId={sessionId}
+                  onOpenSummary={handleOpenSummary}
+                />
+              </>
             )}
             {renderedCurrentTab.type === "transcript" && (
               <Transcript sessionId={sessionId} scrollRef={scrollRef} />
