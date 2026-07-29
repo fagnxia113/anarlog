@@ -21,9 +21,14 @@ impl LoadedWhisper {
         LoadedWhisperBuilder::default()
     }
 
-    pub fn session(&self, languages: Vec<Language>) -> Result<Whisper, crate::Error> {
+    pub fn session(
+        &self,
+        languages: Vec<Language>,
+        keywords: Vec<String>,
+    ) -> Result<Whisper, crate::Error> {
         Ok(Whisper {
             languages,
+            keywords,
             dynamic_prompt: String::new(),
         })
     }
@@ -33,10 +38,12 @@ impl LoadedWhisper {
 pub struct WhisperBuilder {
     model_path: Option<String>,
     languages: Option<Vec<Language>>,
+    keywords: Option<Vec<String>>,
 }
 
 pub struct Whisper {
     languages: Vec<Language>,
+    keywords: Vec<String>,
     dynamic_prompt: String,
 }
 
@@ -51,11 +58,19 @@ impl WhisperBuilder {
         self
     }
 
+    pub fn keywords(mut self, keywords: Vec<String>) -> Self {
+        self.keywords = Some(keywords);
+        self
+    }
+
     pub fn build(self) -> Result<Whisper, crate::Error> {
         let _ = self.model_path;
         LoadedWhisper::builder()
             .build()?
-            .session(self.languages.unwrap_or_default())
+            .session(
+                self.languages.unwrap_or_default(),
+                self.keywords.unwrap_or_default(),
+            )
     }
 }
 

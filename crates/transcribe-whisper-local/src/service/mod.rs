@@ -68,6 +68,7 @@ pub(crate) fn build_model(
             .iter()
             .filter_map(|lang| lang.clone().try_into().ok())
             .collect(),
+        params.keywords.clone(),
     )
 }
 
@@ -83,8 +84,11 @@ pub(crate) fn load_model(
 pub(crate) fn build_model_with_languages(
     loaded_model: &hypr_whisper_local::LoadedWhisper,
     languages: Vec<hypr_whisper::Language>,
+    keywords: Vec<String>,
 ) -> Result<hypr_whisper_local::Whisper, crate::Error> {
-    loaded_model.session(languages).map_err(crate::Error::from)
+    loaded_model
+        .session(languages, keywords)
+        .map_err(crate::Error::from)
 }
 
 pub(crate) fn transcribe_chunk(

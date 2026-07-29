@@ -223,7 +223,14 @@ async fn handle_websocket(
         .iter()
         .filter_map(|lang| lang.clone().try_into().ok())
         .collect();
-    match build_transcription_streams(total_channels, model.as_ref(), &languages, redemption_time) {
+    let keywords = params.keywords.clone();
+    match build_transcription_streams(
+        total_channels,
+        model.as_ref(),
+        &languages,
+        &keywords,
+        redemption_time,
+    ) {
         Ok((audio_txs, mut stream)) => {
             let mut audio_txs = audio_txs;
             let mut stop_reason = None;
@@ -437,6 +444,7 @@ fn build_transcription_streams(
     total_channels: usize,
     loaded_model: &hypr_whisper_local::LoadedWhisper,
     languages: &[hypr_whisper::Language],
+    keywords: &[String],
     redemption_time: std::time::Duration,
 ) -> Result<
     (
@@ -452,7 +460,7 @@ fn build_transcription_streams(
         let (audio_tx, audio_rx) = mpsc::channel::<Vec<f32>>(8);
         audio_txs.push(audio_tx);
 
-        let model = build_model_with_languages(loaded_model, languages.to_vec())?;
+        let model = build_model_with_languages(loaded_model, languages.to_vec(), keywords.to_vec())?;
         let chunk_stream = ChannelAudioSource::new(audio_rx)
             .speech_chunks(SpeechChunkingConfig::speech(redemption_time));
         let stream: TranscriptionStream = Box::pin(TranscribeChannelStream::new(

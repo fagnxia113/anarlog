@@ -67,6 +67,7 @@ impl LoadedWhisperBuilder {
 pub struct WhisperBuilder {
     model_path: Option<String>,
     languages: Option<Vec<Language>>,
+    keywords: Option<Vec<String>>,
 }
 
 impl WhisperBuilder {
@@ -80,11 +81,19 @@ impl WhisperBuilder {
         self
     }
 
+    pub fn keywords(mut self, keywords: Vec<String>) -> Self {
+        self.keywords = Some(keywords);
+        self
+    }
+
     pub fn build(self) -> Result<Whisper, crate::Error> {
         LoadedWhisper::builder()
             .model_path(self.model_path.unwrap())
             .build()?
-            .session(self.languages.unwrap_or_default())
+            .session(
+                self.languages.unwrap_or_default(),
+                self.keywords.unwrap_or_default(),
+            )
     }
 }
 
@@ -98,11 +107,16 @@ impl LoadedWhisper {
         LoadedWhisperBuilder::default()
     }
 
-    pub fn session(&self, languages: Vec<Language>) -> Result<Whisper, crate::Error> {
+    pub fn session(
+        &self,
+        languages: Vec<Language>,
+        keywords: Vec<String>,
+    ) -> Result<Whisper, crate::Error> {
         Ok(Whisper {
             id: uuid::Uuid::new_v4().to_string(),
             index: 0,
             languages,
+            keywords,
             dynamic_prompt: String::new(),
             state: self.ctx.create_state()?,
             token_beg: self.token_beg,
@@ -116,6 +130,7 @@ pub struct Whisper {
     #[allow(dead_code)]
     index: usize,
     languages: Vec<Language>,
+    keywords: Vec<String>,
     dynamic_prompt: String,
     state: WhisperState,
     token_beg: WhisperTokenId,
@@ -142,7 +157,11 @@ impl Whisper {
         let params = {
             let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
 
-            let parts = [self.dynamic_prompt.trim()];
+            let keyword_prompt = self.keywords.join(", ");
+            let parts: Vec<&str> = [keyword_prompt.as_str(), self.dynamic_prompt.trim()]
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .collect();
             let joined = parts.join("\n");
             let initial_prompt = joined.trim();
 
