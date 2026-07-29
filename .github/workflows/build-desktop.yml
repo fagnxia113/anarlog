@@ -29,6 +29,8 @@ jobs:
         with:
           run_install: false
 
+      - run: pnpm install
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: tauri-apps/tauri-action@v0
