@@ -10,9 +10,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  typecheck:
-    name: Typecheck
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest]
+
+    runs-on: ${{ matrix.platform }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -23,106 +28,17 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
-
-      - id: pnpm-cache
-        shell: pwsh
-        run: |
-          $storePath = pnpm store path
-          "store-path=$storePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store-path }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
-      - run: pnpm install
-
-      - run: pnpm -F @hypr/desktop typecheck
-
-  build-windows:
-    name: Build (Windows x64)
-    needs: typecheck
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - uses: pnpm/action-setup@v4
-        with:
-          run_install: false
-
-      - id: pnpm-cache
-        shell: pwsh
-        run: |
-          $storePath = pnpm store path
-          "store-path=$storePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store-path }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/cache@v4
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            apps/desktop/src-tauri/target/release
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock', 'apps/desktop/src-tauri/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-
-
-      - shell: pwsh
-        run: |
-          $staleDirs = @(
-            "apps/desktop/src-tauri/target/release/bundle",
-            "apps/desktop/src-tauri/target/release/nsis",
-            "apps/desktop/src-tauri/target/release/wix"
-          )
-          foreach ($d in $staleDirs) {
-            if (Test-Path $d) {
-              Write-Host "Removing stale: $d"
-              Remove-Item -Recurse -Force $d
-            }
-          }
-
-      - run: pnpm install
-
-      - run: pnpm tauri:build -- --no-sign --verbose
-        working-directory: apps/desktop
-
-      - id: find-nsis
-        if: always()
-        shell: pwsh
-        run: |
-          $exe = Get-ChildItem -Path "apps/desktop/src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if ($exe) {
-            Write-Host "Found NSIS EXE: $($exe.FullName) (modified $($exe.LastWriteTime))"
-            "exe_path=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            "exe_name=$($exe.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          } else {
-            Write-Host "No NSIS EXE found"
-          }
-
-      - if: always() && steps.find-nsis.outputs.exe_path
-        uses: actions/upload-artifact@v4
-        with:
-          name: anarlog-windows-nsis
-          path: ${{ steps.find-nsis.outputs.exe_path }}
-          if-no-files-found: error
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "Anarlog Desktop ${{ github.ref_name }}"
+          releaseBody: "See the assets to download this version."
+          releaseDraft: true
+          prerelease: false
+          args: --no-sign
