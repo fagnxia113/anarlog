@@ -57,6 +57,8 @@ pub(crate) fn redemption_time(params: &ListenParams) -> Duration {
         .unwrap_or(DEFAULT_REDEMPTION_TIME)
 }
 
+/// Builds a Whisper session from request params.
+/// Keywords (hot words) are propagated to the session's initial prompt.
 pub(crate) fn build_model(
     loaded_model: &hypr_whisper_local::LoadedWhisper,
     params: &ListenParams,

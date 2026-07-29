@@ -89,4 +89,34 @@ impl Whisper {
             meta: None,
         }])
     }
+
+    #[cfg(test)]
+    pub fn test_keywords(&self) -> &[String] {
+        &self.keywords
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_keywords_propagate_to_session() {
+        let keywords = vec!["hello".to_string(), "world".to_string()];
+        let whisper = LoadedWhisper::builder()
+            .build()
+            .unwrap()
+            .session(vec![], keywords.clone())
+            .unwrap();
+        assert_eq!(whisper.test_keywords(), keywords);
+    }
+
+    #[test]
+    fn builder_keywords_chain() {
+        let whisper = WhisperBuilder::default()
+            .keywords(vec!["term".to_string()])
+            .build()
+            .unwrap();
+        assert_eq!(whisper.test_keywords(), &["term".to_string()]);
+    }
 }
