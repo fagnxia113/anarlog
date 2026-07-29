@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Anarlog Staging",
-  "mainBinaryName": "anarlog-staging",
-  "identifier": "com.hyprnote.staging",
+  "productName": "zhnote Staging",
+  "mainBinaryName": "zhnote-staging",
+  "identifier": "com.zhnote.staging",
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["anarlog-staging", "hyprnote-staging"]
+        "schemes": ["zhnote-staging", "zhnote"]
       }
     },
     "updater": {

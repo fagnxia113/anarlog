@@ -19,7 +19,7 @@ use tauri_plugin_permissions::{Permission, PermissionsPluginExt};
 use tauri_plugin_windows::{AppWindow, WindowsPluginExt};
 
 #[cfg(any(feature = "dev", feature = "devtools"))]
-const STAGING_BUNDLE_ID: &str = "com.hyprnote.staging";
+const STAGING_BUNDLE_ID: &str = "com.zhnote.staging";
 
 const APP_EXIT_REQUESTED_EVENT: &str = "app-exit-requested";
 static EXIT_FLUSH_COMPLETE: AtomicBool = AtomicBool::new(false);
@@ -82,7 +82,7 @@ pub async fn main() {
 
         if let Some(dsn) = dsn {
             let release =
-                option_env!("APP_VERSION").map(|v| format!("hyprnote-desktop@{}", v).into());
+                option_env!("APP_VERSION").map(|v| format!("zhnote-desktop@{}", v).into());
 
             let client = sentry::init((
                 dsn,
@@ -95,7 +95,7 @@ pub async fn main() {
             ));
 
             sentry::configure_scope(|scope| {
-                scope.set_tag("service.namespace", "hyprnote");
+                scope.set_tag("service.namespace", "zhnote");
                 scope.set_tag("service.name", "desktop");
                 scope.set_tag("enduser.pseudo.id", hypr_host::fingerprint());
                 scope.set_user(Some(sentry::User {
@@ -397,7 +397,7 @@ pub async fn main() {
 }
 
 fn startup_failure_message(error: &impl std::fmt::Display) -> String {
-    format!("Anarlog failed to start: {error}")
+    format!("zhnote failed to start: {error}")
 }
 
 fn exit_after_startup_failure(error: &impl std::fmt::Display) -> ! {
@@ -411,7 +411,7 @@ fn exit_after_startup_failure(error: &impl std::fmt::Display) -> ! {
         let _ = std::process::Command::new("/usr/bin/osascript")
             .args([
                 "-e",
-                "display alert \"Anarlog could not start\" message \"Your existing data was left unchanged. Please restart the app. If the problem continues, contact support.\" as critical buttons {\"OK\"} default button \"OK\"",
+                "display alert \"zhnote could not start\" message \"Your existing data was left unchanged. Please restart the app. If the problem continues, contact support.\" as critical buttons {\"OK\"} default button \"OK\"",
             ])
             .spawn();
     }
@@ -482,7 +482,7 @@ mod test {
 
         assert_eq!(
             message,
-            "Anarlog failed to start: legacy import did not pass parity verification"
+            "zhnote failed to start: legacy import did not pass parity verification"
         );
     }
 

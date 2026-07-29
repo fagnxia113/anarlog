@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - refactor/zhnote-rebrand
   pull_request:
     branches:
       - main
@@ -45,6 +46,6 @@ jobs:
       - name: Upload NSIS installer
         uses: actions/upload-artifact@v4
         with:
-          name: windows-nsis
+          name: zhnote-windows-nsis
           path: apps/desktop/src-tauri/target/**/bundle/nsis/*.exe
           if-no-files-found: error

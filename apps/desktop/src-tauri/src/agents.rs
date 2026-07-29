@@ -22,7 +22,7 @@ mod tests {
             assert!(AGENTS_CONTENT.contains(tool));
         }
 
-        assert!(AGENTS_CONTENT.contains("anarlog --json meetings list"));
+        assert!(AGENTS_CONTENT.contains("zhnote --json meetings list"));
         assert!(!AGENTS_CONTENT.contains("--base ."));
         assert!(AGENTS_CONTENT.contains("--db-path ABSOLUTE_APP_DB"));
         assert!(AGENTS_CONTENT.contains("Do not use `find`,"));
