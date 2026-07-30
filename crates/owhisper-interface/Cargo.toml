@@ -6,9 +6,6 @@ edition = "2024"
 [features]
 openapi = ["dep:utoipa"]
 
-[dev-dependencies]
-deepgram = { workspace = true, default-features = false, features = ["listen"] }
-
 [dependencies]
 hypr-language = { workspace = true }
 

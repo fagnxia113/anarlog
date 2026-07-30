@@ -33,9 +33,6 @@ rodio = { workspace = true }
 ebur128 = "0.1.10"
 ringbuf = { workspace = true }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-cidre = { workspace = true, features = ["av"] }
-
 [target.'cfg(target_os = "windows")'.dependencies]
 wasapi = { workspace = true }
 

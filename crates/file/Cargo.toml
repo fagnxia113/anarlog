@@ -18,7 +18,6 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 dirs = { workspace = true }
-hypr-s3 = { workspace = true }
 tempfile = { workspace = true }
 testcontainers-modules = { workspace = true, features = ["minio"] }
 wiremock = { workspace = true }

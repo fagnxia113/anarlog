@@ -40,7 +40,6 @@ url = { workspace = true }
 hypr-audio-utils = { workspace = true }
 hypr-data = { workspace = true }
 
-deepgram = { workspace = true, features = ["listen"] }
 rodio = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
