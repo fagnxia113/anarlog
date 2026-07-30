@@ -1,5 +1,1 @@
-import { commands as openerCommands } from "@hypr/plugin-opener2";
-
-export async function openEditorLink(href: string) {
-  await openerCommands.openUrl(href, null);
-}
+export function openEditorLink(_url: string) {}

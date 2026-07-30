@@ -67,12 +67,6 @@ vi.mock("@hypr/editor/chat", async () => {
   };
 });
 
-vi.mock("@hypr/plugin-analytics", () => ({
-  commands: {
-    event: vi.fn(() => Promise.resolve()),
-  },
-}));
-
 vi.mock("~/contexts/shell", () => ({
   useShell: () => ({
     chat: {

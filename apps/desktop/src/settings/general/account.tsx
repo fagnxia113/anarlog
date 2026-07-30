@@ -9,7 +9,6 @@ import {
   useState,
 } from "react";
 
-import { commands as analyticsCommands } from "@hypr/plugin-analytics";
 import { commands as openerCommands } from "@hypr/plugin-opener2";
 import { openUrlWithInstruction } from "@hypr/plugin-windows";
 import {
@@ -55,16 +54,7 @@ export function SettingsAccount() {
     mutationFn: async () => {
       await auth?.signOut();
     },
-    onSuccess: () => {
-      void analyticsCommands.event({
-        event: "user_signed_out",
-      });
-      void analyticsCommands.setProperties({
-        set: {
-          is_signed_up: false,
-        },
-      });
-    },
+    onSuccess: () => {},
     onError: (error) => {
       const message = String(error).includes("unsent local changes")
         ? t`Sync your changes before signing out.`
@@ -283,13 +273,6 @@ function PlanBillingSection({
 
     const handleClick = async () => {
       if (action.label === "Start free trial") {
-        void analyticsCommands.event({
-          event: "trial_checkout_started",
-          plan: "pro",
-          period: "monthly",
-          source: "settings",
-        });
-
         await openBillingUrl(() =>
           buildWebAppUrl("/app/checkout", {
             period: "monthly",
@@ -301,13 +284,6 @@ function PlanBillingSection({
       }
       const targetPlan = action.targetPlan;
       if (!targetPlan) return;
-
-      void analyticsCommands.event({
-        event: "upgrade_clicked",
-        plan: targetPlan,
-        period: "monthly",
-        source: "settings",
-      });
 
       await openBillingUrl(() =>
         buildWebAppUrl("/app/checkout", {

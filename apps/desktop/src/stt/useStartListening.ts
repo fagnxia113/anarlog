@@ -1,6 +1,5 @@
 import { useCallback, useRef } from "react";
 
-import { commands as analyticsCommands } from "@hypr/plugin-analytics";
 import { beginCloudsyncActivity } from "@hypr/plugin-db";
 import { commands as detectCommands } from "@hypr/plugin-detect";
 import { commands as fsSyncCommands } from "@hypr/plugin-fs-sync";
@@ -32,7 +31,6 @@ import {
 } from "~/session/attachments";
 import { enqueueSessionAudioOperation } from "~/session/audio-operations";
 import { useSession, useSessionTranscriptExistence } from "~/session/queries";
-import { getSessionEvent } from "~/session/utils";
 import { useConfigValue } from "~/shared/config";
 import { id } from "~/shared/utils";
 import type {
@@ -1204,19 +1202,6 @@ export function useStartListening(sessionId: string) {
         () => getSessionMode(sessionId) === "active",
       );
     }
-
-    void analyticsCommands.event({
-      event: "session_started",
-      has_calendar_event: Boolean(
-        getSessionEvent({ event_json: session?.event_json }),
-      ),
-      ...(conn
-        ? {
-            stt_provider: conn.provider,
-            stt_model: conn.model,
-          }
-        : {}),
-    });
   }, [
     aiLanguage,
     canStartLiveSession,

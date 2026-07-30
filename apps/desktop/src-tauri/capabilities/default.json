@@ -47,6 +47,7 @@
     "clipboard-manager:allow-write-text",
     "shell:allow-open",
     "fs2:default",
+    "fs-sync:default",
     "os:default",
     "opener2:default",
     "detect:default",

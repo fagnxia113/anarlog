@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ChatEditorHandle, JSONContent } from "@hypr/editor/chat";
 import { EMPTY_DOC } from "@hypr/editor/markdown";
-import { commands as analyticsCommands } from "@hypr/plugin-analytics";
 
 import type { ContextRef } from "~/chat/context/entities";
 
@@ -75,7 +74,6 @@ export function useSubmit({
       return;
     }
 
-    void analyticsCommands.event({ event: "message_sent" });
     onSendMessage(text, [{ type: "text", text }], mentionRefs);
     editorRef.current?.clearContent();
     draftsByKey.delete(draftKey);

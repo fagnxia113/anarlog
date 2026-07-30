@@ -3,7 +3,6 @@ import { Effect, Exit } from "effect";
 import type { StoreApi } from "zustand";
 
 import { commands as detectCommands } from "@hypr/plugin-detect";
-import { commands as hooksCommands } from "@hypr/plugin-hooks";
 import { commands as iconCommands } from "@hypr/plugin-icon";
 import { commands as settingsCommands } from "@hypr/plugin-settings";
 import {
@@ -42,7 +41,6 @@ import type {
   TranscriptState,
 } from "./transcript";
 
-import { getSessionResourcePath } from "~/session/resource-path";
 import { fromResult } from "~/stt/fromResult";
 
 type EventListeners = {
@@ -347,7 +345,7 @@ export const startLiveSession = <T extends LiveStore>(
       live.eventUnlistenersBySession[targetSessionId] = unlisteners;
     });
 
-    const [dataDirPath, micUsingApps, bundleId] = yield* Effect.tryPromise({
+    const [, micUsingApps, bundleId] = yield* Effect.tryPromise({
       try: () =>
         Promise.all([
           settingsCommands.vaultBase().then((r) => {
@@ -364,8 +362,6 @@ export const startLiveSession = <T extends LiveStore>(
       catch: (error) => error,
     });
 
-    const sessionPath = getSessionResourcePath(dataDirPath, targetSessionId);
-    const app_meeting = micUsingApps?.[0] ?? null;
     const triggerAppIds = getAutoStopTriggerAppIds(micUsingApps, bundleId);
 
     if (triggerAppIds.length > 0) {
@@ -377,16 +373,7 @@ export const startLiveSession = <T extends LiveStore>(
     }
 
     yield* Effect.tryPromise({
-      try: () =>
-        hooksCommands.runEventHooks({
-          beforeListeningStarted: {
-            args: {
-              resource_dir: sessionPath,
-              app_hyprnote: bundleId,
-              app_meeting,
-            },
-          },
-        }),
+      try: () => Promise.resolve(),
       catch: (error) => {
         console.error("[hooks] BeforeListeningStarted failed:", error);
         return error;
@@ -695,29 +682,6 @@ export const stopLiveSession = <T extends GeneralState>(
         if (!sessionId) {
           return;
         }
-
-        void Promise.all([
-          settingsCommands.vaultBase().then((r) => {
-            if (r.status === "error") throw new Error(r.error);
-            return r.data;
-          }),
-          getIdentifier().catch(() => "com.hyprnote.stable"),
-        ])
-          .then(([dataDirPath, bundleId]) => {
-            const sessionPath = getSessionResourcePath(dataDirPath, sessionId);
-            return hooksCommands.runEventHooks({
-              afterListeningStopped: {
-                args: {
-                  resource_dir: sessionPath,
-                  app_hyprnote: bundleId,
-                  app_meeting: null,
-                },
-              },
-            });
-          })
-          .catch((error) => {
-            console.error("[hooks] AfterListeningStopped failed:", error);
-          });
       },
     });
   });

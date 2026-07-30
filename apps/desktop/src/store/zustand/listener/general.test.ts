@@ -8,7 +8,6 @@ const {
   listenCaptureLifecycleMock,
   listenCaptureStatusMock,
   listMicUsingApplicationsMock,
-  runEventHooksMock,
   setRecordingIndicatorMock,
   startCaptureMock,
   stopCaptureMock,
@@ -20,7 +19,6 @@ const {
   listenCaptureLifecycleMock: vi.fn(),
   listenCaptureStatusMock: vi.fn(),
   listMicUsingApplicationsMock: vi.fn(),
-  runEventHooksMock: vi.fn(),
   setRecordingIndicatorMock: vi.fn(),
   startCaptureMock: vi.fn(),
   stopCaptureMock: vi.fn(),
@@ -34,12 +32,6 @@ vi.mock("@tauri-apps/api/app", () => ({
 vi.mock("@hypr/plugin-detect", () => ({
   commands: {
     listMicUsingApplications: listMicUsingApplicationsMock,
-  },
-}));
-
-vi.mock("@hypr/plugin-hooks", () => ({
-  commands: {
-    runEventHooks: runEventHooksMock,
   },
 }));
 
@@ -109,7 +101,6 @@ describe("General Listener Slice", () => {
     listenCaptureLifecycleMock.mockResolvedValue(() => {});
     listenCaptureStatusMock.mockResolvedValue(() => {});
     listMicUsingApplicationsMock.mockResolvedValue({ status: "ok", data: [] });
-    runEventHooksMock.mockResolvedValue({ status: "ok", data: null });
     setRecordingIndicatorMock.mockResolvedValue({ status: "ok", data: null });
     startCaptureMock.mockResolvedValue({ status: "ok", data: null });
     stopCaptureMock.mockResolvedValue({ status: "ok", data: null });

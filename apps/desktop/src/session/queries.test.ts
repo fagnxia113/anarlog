@@ -9,10 +9,6 @@ const mocks = vi.hoisted(() => ({
   ),
 }));
 
-vi.mock("@hypr/plugin-analytics", () => ({
-  commands: { eventFireAndForget: mocks.analyticsEventFireAndForget },
-}));
-
 vi.mock("@hypr/plugin-fs-sync", () => ({
   commands: {
     deleteSessionFolder: vi.fn(() =>

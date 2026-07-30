@@ -1,7 +1,6 @@
 import { useCallback } from "react";
 
 import { json2md, md2json } from "@hypr/editor/markdown";
-import { commands as analyticsCommands } from "@hypr/plugin-analytics";
 import { commands as fsSyncCommands } from "@hypr/plugin-fs-sync";
 import type { EventParticipant, SessionEvent } from "@hypr/store";
 
@@ -681,7 +680,6 @@ export async function createSession(
     },
   ]);
 
-  trackNoteCreated(false);
   return sessionId;
 }
 
@@ -842,16 +840,13 @@ export async function getOrCreateSessionForEventId(
     });
   }
 
-  const rowsAffected = await executeTransaction(statements);
+  await executeTransaction(statements);
 
   const createdSessionId = await findSessionForEvent(event, sessionId);
   if (!createdSessionId) {
     throw new Error(`Failed to create a session for event ${eventId}`);
   }
 
-  if (rowsAffected[0] === 1) {
-    trackNoteCreated(true);
-  }
   return createdSessionId;
 }
 
@@ -1195,18 +1190,4 @@ function mapEnhancedNoteRow(row: EnhancedNoteSqlRow): EnhancedNoteRecord {
     templateId: row.template_id,
     position: Number(row.sort_order),
   };
-}
-
-function trackNoteCreated(hasEventId: boolean): void {
-  void analyticsCommands
-    .eventFireAndForget({
-      event: "note_created",
-      has_event_id: hasEventId,
-    })
-    .catch((error) => {
-      console.error(
-        "[session] failed to record note creation analytics",
-        error,
-      );
-    });
 }

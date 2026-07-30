@@ -48,12 +48,6 @@ vi.mock("@hypr/editor/note", () => ({
   },
 }));
 
-vi.mock("@hypr/plugin-analytics", () => ({
-  commands: {
-    event: vi.fn(),
-  },
-}));
-
 vi.mock("@hypr/plugin-opener2", () => ({
   commands: { openUrl: vi.fn() },
 }));

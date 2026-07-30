@@ -27,7 +27,6 @@ serde = { workspace = true, features = ["derive"] }
 specta = { workspace = true, features = ["derive"] }
 
 [target."cfg(target_os = \"macos\")".dependencies]
-hypr-bundle = { workspace = true }
 hypr-language = { workspace = true }
 
 plist = "1.7"

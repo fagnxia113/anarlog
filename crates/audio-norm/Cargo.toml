@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 audioadapter-buffers = "2.0"
-hypr-afconvert = { workspace = true }
 hypr-audio-utils = { workspace = true }
 hypr-mp3 = { workspace = true }
 hypr-resampler = { workspace = true }

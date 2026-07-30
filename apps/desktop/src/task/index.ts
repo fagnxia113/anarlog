@@ -1,1 +1,3 @@
-export { TabContentTask } from "./tab-content";
+export function TabContentTask() {
+  return null;
+}

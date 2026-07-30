@@ -3,7 +3,6 @@ import { useForm } from "@tanstack/react-form";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2Icon } from "lucide-react";
 
-import { commands as analyticsCommands } from "@hypr/plugin-analytics";
 import { commands as listenerCommands } from "@hypr/plugin-transcription";
 
 export { SettingsAccount } from "./account";
@@ -107,28 +106,6 @@ function useSettingsForm(storedSettings: StoredSettingValues) {
         capture_meeting_chat: normalizedValue.capture_meeting_chat,
         ai_language: normalizedValue.ai_language,
         spoken_languages: JSON.stringify(normalizedValue.spoken_languages),
-      });
-
-      void analyticsCommands.event({
-        event: "settings_changed",
-        autostart: normalizedValue.autostart,
-        auto_join_scheduled_meetings:
-          normalizedValue.auto_join_scheduled_meetings,
-        auto_start_scheduled_meetings:
-          normalizedValue.auto_start_scheduled_meetings,
-        auto_stop_meetings: normalizedValue.auto_stop_meetings,
-        floating_bar_enabled: normalizedValue.floating_bar_enabled,
-        show_app_in_dock: normalizedValue.show_app_in_dock,
-        show_tray_icon: normalizedValue.show_tray_icon,
-        notification_detect: normalizedValue.notification_detect,
-        telemetry_consent: normalizedValue.telemetry_consent,
-        consent_auto_send_chat: normalizedValue.consent_auto_send_chat,
-        capture_meeting_chat: normalizedValue.capture_meeting_chat,
-      });
-      void analyticsCommands.setProperties({
-        set: {
-          telemetry_opt_out: normalizedValue.telemetry_consent === false,
-        },
       });
     },
   });

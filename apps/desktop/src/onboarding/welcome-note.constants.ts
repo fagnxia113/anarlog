@@ -1,12 +1,9 @@
-export const WELCOME_NOTE_DEMO_URL = "https://anarlog.so/onboarding-demo/";
-export const WELCOME_NOTE_TRACKING_ID = "anarlog-onboarding-demo-v1";
-export const WELCOME_NOTE_COMPLETE_PATH = "/onboarding-demo/complete";
+export const WELCOME_NOTE_TEMPLATE_ID = "";
+export const WELCOME_NOTE_TRACKING_ID = "";
 
-export function buildWelcomeNoteDemoUrl(meetingLink: string, port: number) {
-  const url = new URL(meetingLink);
-  url.searchParams.set(
-    "completion_url",
-    `http://127.0.0.1:${port}${WELCOME_NOTE_COMPLETE_PATH}`,
-  );
-  return url.toString();
+export function buildWelcomeNoteDemoUrl(
+  _meetingLink?: unknown,
+  _data?: unknown,
+): string {
+  return "";
 }

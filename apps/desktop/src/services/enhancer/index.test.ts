@@ -16,10 +16,6 @@ const mocks = vi.hoisted(() => ({
   listenerGetState: vi.fn(),
 }));
 
-vi.mock("@hypr/plugin-analytics", () => ({
-  commands: { event: mocks.analyticsEvent },
-}));
-
 vi.mock("~/session/content-queries", () => ({
   loadSessionContentSnapshot: mocks.loadSessionContentSnapshot,
 }));
