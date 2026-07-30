@@ -91,7 +91,9 @@ pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
 
             let app_handle = app.app_handle().clone();
             tauri::async_runtime::spawn(async move {
-                handler::setup(&app_handle).unwrap();
+                if let Err(error) = handler::setup(&app_handle) {
+                    tracing::warn!(%error, "failed to setup detect handler");
+                }
             });
 
             Ok(())

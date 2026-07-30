@@ -83,7 +83,7 @@ pub async fn main() {
 
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            app.windows().show(AppWindow::Main).unwrap();
+            let _ = app.windows().show(AppWindow::Main);
         }));
     }
 
@@ -160,7 +160,9 @@ pub async fn main() {
             {
                 // https://v2.tauri.app/ko/plugin/deep-linking/#desktop-1
                 use tauri_plugin_deep_link::DeepLinkExt;
-                app.deep_link().register_all()?;
+                if let Err(error) = app.deep_link().register_all() {
+                    tracing::warn!(%error, "failed to register deep links");
+                }
             }
 
             {
@@ -171,9 +173,13 @@ pub async fn main() {
                         .show_tray_icon;
 
                 if show_tray_icon {
-                    app_handle.tray().create_tray_menu().unwrap();
+                    if let Err(error) = app_handle.tray().create_tray_menu() {
+                        tracing::warn!(%error, "failed to create tray menu");
+                    }
                 }
-                app_handle.tray().create_app_menu().unwrap();
+                if let Err(error) = app_handle.tray().create_app_menu() {
+                    tracing::warn!(%error, "failed to create app menu");
+                }
             }
 
             {
@@ -220,7 +226,9 @@ pub async fn main() {
 
     match get_onboarding_flag() {
         None => {}
-        Some(false) => app.set_onboarding_needed(false).unwrap(),
+        Some(false) => {
+            let _ = app.set_onboarding_needed(false);
+        }
         Some(true) => {
             use tauri_plugin_settings::SettingsPluginExt;
             use tauri_plugin_store2::Store2PluginExt;
@@ -233,7 +241,9 @@ pub async fn main() {
 
     {
         let app_handle = app.handle().clone();
-        AppWindow::Main.show(&app_handle).unwrap();
+        if let Err(error) = AppWindow::Main.show(&app_handle) {
+            tracing::error!(%error, "failed to show main window");
+        }
     }
 
     #[allow(unused_variables)]

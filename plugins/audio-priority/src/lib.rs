@@ -40,9 +40,15 @@ pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new(PLUGIN_NAME)
         .invoke_handler(specta_builder.invoke_handler())
         .setup(|app, _api| {
-            let base = app.settings().global_base().unwrap();
-            let state = AudioPriorityState::new(base.into_std_path_buf());
-            assert!(app.manage(state));
+            match app.settings().global_base() {
+                Ok(base) => {
+                    let state = AudioPriorityState::new(base.into_std_path_buf());
+                    app.manage(state);
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "failed to get global base for audio-priority");
+                }
+            }
             Ok(())
         })
         .build()

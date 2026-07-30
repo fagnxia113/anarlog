@@ -39,9 +39,15 @@ pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
         .setup(move |app, _api| {
             specta_builder.mount_events(app);
 
-            let startup_vault_base = app.settings().resolve_startup_vault_base().unwrap();
+            let startup_vault_base = match app.settings().resolve_startup_vault_base() {
+                Ok(path) => path,
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to resolve startup vault base, using temp dir");
+                    std::env::temp_dir()
+                }
+            };
             let snapshot = state::StartupSnapshot::new(startup_vault_base);
-            assert!(app.manage(snapshot));
+            app.manage(snapshot);
             Ok(())
         })
         .build()

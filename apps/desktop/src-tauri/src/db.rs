@@ -6,16 +6,27 @@ const DB_FILENAME: &str = "app.db";
 const DEFAULT_CLOUDSYNC_INTERVAL_MS: u64 = 30_000;
 
 pub async fn open_desktop_db(identifier: &str) -> Arc<Db> {
-    let db_path = desktop_db_dir(identifier).map(|dir| {
-        std::fs::create_dir_all(&dir).expect("failed to create app data dir");
-        dir.join(DB_FILENAME)
+    let db_path = desktop_db_dir(identifier).and_then(|dir| {
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            tracing::error!(error = %e, "failed to create app data dir");
+            return None;
+        }
+        Some(dir.join(DB_FILENAME))
     });
 
-    let db = tauri_plugin_db::open_app_db(db_path.as_deref())
-        .await
-        .expect("failed to open app database");
-
-    Arc::new(db)
+    match tauri_plugin_db::open_app_db(db_path.as_deref()).await {
+        Ok(db) => Arc::new(db),
+        Err(e) => {
+            tracing::error!(error = %e, "failed to open app database, falling back to in-memory");
+            match tauri_plugin_db::open_app_db(None).await {
+                Ok(db) => Arc::new(db),
+                Err(e2) => {
+                    tracing::error!(error = %e2, "in-memory database also failed");
+                    panic!("failed to open any database: {e} / {e2}")
+                }
+            }
+        }
+    }
 }
 
 pub fn cloudsync_runtime_config_from_env()
