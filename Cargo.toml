@@ -9,19 +9,13 @@ debug = false
 
 [workspace]
 resolver = "2"
-members = [
-  "apps/desktop/src-tauri",
-  "crates/*",
-  "plugins/*",
-]
-exclude = [
-  "crates/vad-ext",
-]
+members = ["apps/desktop/src-tauri", "crates/*", "plugins/*"]
+exclude = ["crates/vad-ext"]
 
 [workspace.dependencies]
 hypr-aec = { path = "crates/aec", package = "aec" }
-hypr-agent-access = { path = "crates/agent-access", package = "agent-access" }
 hypr-agc = { path = "crates/agc", package = "agc" }
+hypr-agent-access = { path = "crates/agent-access", package = "agent-access" }
 hypr-am = { path = "crates/am", package = "am" }
 hypr-amp = { path = "crates/amp", package = "amp" }
 hypr-analytics = { path = "crates/analytics", package = "analytics" }
@@ -32,6 +26,7 @@ hypr-api-error = { path = "crates/api-error", package = "api-error" }
 hypr-api-nango = { path = "crates/api-nango", package = "api-nango" }
 hypr-apple-calendar = { path = "crates/apple-calendar", package = "apple-calendar" }
 hypr-askama-utils = { path = "crates/askama-utils", package = "askama-utils" }
+hypr-audacity = { path = "crates/audacity", package = "audacity" }
 hypr-audio = { path = "crates/audio", package = "audio" }
 hypr-audio-actual = { path = "crates/audio-actual", package = "audio-actual" }
 hypr-audio-chunking = { path = "crates/audio-chunking", package = "audio-chunking" }
@@ -43,13 +38,12 @@ hypr-audio-norm = { path = "crates/audio-norm", package = "audio-norm" }
 hypr-audio-snapshot = { path = "crates/audio-snapshot", package = "audio-snapshot" }
 hypr-audio-sync = { path = "crates/audio-sync", package = "audio-sync" }
 hypr-audio-utils = { path = "crates/audio-utils", package = "audio-utils" }
-hypr-audacity = { path = "crates/audacity", package = "audacity" }
 hypr-buffer = { path = "crates/buffer", package = "buffer" }
 hypr-calendar-interface = { path = "crates/calendar-interface", package = "calendar-interface" }
 hypr-chatwoot = { path = "crates/chatwoot", package = "chatwoot" }
+hypr-claude = { path = "crates/claude", package = "claude" }
 hypr-cli-process = { path = "crates/cli-process", package = "cli-process" }
 hypr-cloudsync = { path = "crates/cloudsync", package = "cloudsync" }
-hypr-claude = { path = "crates/claude", package = "claude" }
 hypr-codex = { path = "crates/codex", package = "codex" }
 hypr-data = { path = "crates/data", package = "data" }
 hypr-db-app = { path = "crates/db-app", package = "db-app" }
@@ -225,7 +219,9 @@ camino = "1"
 
 anyhow = "1"
 approx = "0.5.1"
-async-stripe = { version = "1.0.0-rc.5", default-features = false }
+async-stripe = { version = "1.0.0-rc.5", default-features = false, features = [
+  "default-tls",
+] }
 async-stripe-billing = { version = "1.0.0-rc.5", default-features = false }
 async-stripe-core = { version = "1.0.0-rc.5", default-features = false }
 backon = "1.6.0"
@@ -334,7 +330,9 @@ tachyonfx = "0.25"
 vorbis_rs = "0.5.5"
 
 deepgram = { version = "0.7", default-features = false }
-hf-hub = { git = "https://github.com/huggingface/hf-hub", rev = "5510260", default-features = false, features = ["tokio"] }
+hf-hub = { git = "https://github.com/huggingface/hf-hub", rev = "5510260", default-features = false, features = [
+  "tokio",
+] }
 hidapi = { version = "2.6.5", features = ["macos-shared-device"] }
 libsql = "0.9.24"
 
