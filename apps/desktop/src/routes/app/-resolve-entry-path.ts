@@ -1,27 +1,8 @@
-import { isTauri } from "@tauri-apps/api/core";
-
-import { commands } from "~/types/tauri.gen";
-
-export async function getOnboardingNeeded(): Promise<boolean> {
-  if (!isTauri()) {
-    return false;
-  }
-
-  const result = await commands.getOnboardingNeeded();
-  return result.status === "ok" && result.data;
-}
-
 export async function resolveShellEntryPath(): Promise<"/app/main"> {
   return "/app/main";
 }
 
-export async function resolveAppEntryPath(): Promise<
-  "/app/main" | "/app/onboarding"
-> {
-  if (await getOnboardingNeeded()) {
-    return "/app/onboarding";
-  }
-
+export async function resolveAppEntryPath(): Promise<"/app/main"> {
   return resolveShellEntryPath();
 }
 
@@ -36,11 +17,4 @@ export function normalizeAppPath(pathname: string): string {
 export function isShellEntryPath(pathname: string): boolean {
   const normalizedPath = normalizeAppPath(pathname);
   return normalizedPath === "/app" || normalizedPath === "/app/main";
-}
-
-export function shouldCheckOnboarding(pathname: string): boolean {
-  const normalizedPath = normalizeAppPath(pathname);
-  return (
-    normalizedPath === "/app/onboarding" || isShellEntryPath(normalizedPath)
-  );
 }

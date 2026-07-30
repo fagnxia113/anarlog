@@ -11,11 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteRouteImport } from './routes/app/route'
 import { Route as AppIndexRouteImport } from './routes/app/index'
-import { Route as AppOnboardingRouteImport } from './routes/app/onboarding'
-import { Route as AppInstructionRouteImport } from './routes/app/instruction'
 import { Route as AppComposerRouteImport } from './routes/app/composer'
-import { Route as AppNoteSessionIdRouteImport } from './routes/app/note.$sessionId'
 import { Route as AppMainLayoutRouteImport } from './routes/app/main/_layout'
+import { Route as AppNoteSessionIdRouteImport } from './routes/app/note.$sessionId'
 import { Route as AppMainLayoutIndexRouteImport } from './routes/app/main/_layout.index'
 
 const AppRouteRoute = AppRouteRouteImport.update({
@@ -28,29 +26,19 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRouteRoute,
 } as any)
-const AppOnboardingRoute = AppOnboardingRouteImport.update({
-  id: '/onboarding',
-  path: '/onboarding',
-  getParentRoute: () => AppRouteRoute,
-} as any)
-const AppInstructionRoute = AppInstructionRouteImport.update({
-  id: '/instruction',
-  path: '/instruction',
-  getParentRoute: () => AppRouteRoute,
-} as any)
 const AppComposerRoute = AppComposerRouteImport.update({
   id: '/composer',
   path: '/composer',
   getParentRoute: () => AppRouteRoute,
 } as any)
-const AppNoteSessionIdRoute = AppNoteSessionIdRouteImport.update({
-  id: '/note/$sessionId',
-  path: '/note/$sessionId',
-  getParentRoute: () => AppRouteRoute,
-} as any)
 const AppMainLayoutRoute = AppMainLayoutRouteImport.update({
   id: '/main/_layout',
   path: '/main',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppNoteSessionIdRoute = AppNoteSessionIdRouteImport.update({
+  id: '/note/$sessionId',
+  path: '/note/$sessionId',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppMainLayoutIndexRoute = AppMainLayoutIndexRouteImport.update({
@@ -62,8 +50,6 @@ const AppMainLayoutIndexRoute = AppMainLayoutIndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/app': typeof AppRouteRouteWithChildren
   '/app/composer': typeof AppComposerRoute
-  '/app/instruction': typeof AppInstructionRoute
-  '/app/onboarding': typeof AppOnboardingRoute
   '/app/': typeof AppIndexRoute
   '/app/main': typeof AppMainLayoutRouteWithChildren
   '/app/note/$sessionId': typeof AppNoteSessionIdRoute
@@ -71,8 +57,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/app/composer': typeof AppComposerRoute
-  '/app/instruction': typeof AppInstructionRoute
-  '/app/onboarding': typeof AppOnboardingRoute
   '/app': typeof AppIndexRoute
   '/app/note/$sessionId': typeof AppNoteSessionIdRoute
   '/app/main': typeof AppMainLayoutIndexRoute
@@ -81,8 +65,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/app': typeof AppRouteRouteWithChildren
   '/app/composer': typeof AppComposerRoute
-  '/app/instruction': typeof AppInstructionRoute
-  '/app/onboarding': typeof AppOnboardingRoute
   '/app/': typeof AppIndexRoute
   '/app/main/_layout': typeof AppMainLayoutRouteWithChildren
   '/app/note/$sessionId': typeof AppNoteSessionIdRoute
@@ -93,26 +75,16 @@ export interface FileRouteTypes {
   fullPaths:
     | '/app'
     | '/app/composer'
-    | '/app/instruction'
-    | '/app/onboarding'
     | '/app/'
     | '/app/main'
     | '/app/note/$sessionId'
     | '/app/main/'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/app/composer'
-    | '/app/instruction'
-    | '/app/onboarding'
-    | '/app'
-    | '/app/note/$sessionId'
-    | '/app/main'
+  to: '/app/composer' | '/app' | '/app/note/$sessionId' | '/app/main'
   id:
     | '__root__'
     | '/app'
     | '/app/composer'
-    | '/app/instruction'
-    | '/app/onboarding'
     | '/app/'
     | '/app/main/_layout'
     | '/app/note/$sessionId'
@@ -139,20 +111,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
-    '/app/onboarding': {
-      id: '/app/onboarding'
-      path: '/onboarding'
-      fullPath: '/app/onboarding'
-      preLoaderRoute: typeof AppOnboardingRouteImport
-      parentRoute: typeof AppRouteRoute
-    }
-    '/app/instruction': {
-      id: '/app/instruction'
-      path: '/instruction'
-      fullPath: '/app/instruction'
-      preLoaderRoute: typeof AppInstructionRouteImport
-      parentRoute: typeof AppRouteRoute
-    }
     '/app/composer': {
       id: '/app/composer'
       path: '/composer'
@@ -160,18 +118,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppComposerRouteImport
       parentRoute: typeof AppRouteRoute
     }
-    '/app/note/$sessionId': {
-      id: '/app/note/$sessionId'
-      path: '/note/$sessionId'
-      fullPath: '/app/note/$sessionId'
-      preLoaderRoute: typeof AppNoteSessionIdRouteImport
-      parentRoute: typeof AppRouteRoute
-    }
     '/app/main/_layout': {
       id: '/app/main/_layout'
       path: '/main'
       fullPath: '/app/main'
       preLoaderRoute: typeof AppMainLayoutRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/note/$sessionId': {
+      id: '/app/note/$sessionId'
+      path: '/note/$sessionId'
+      fullPath: '/app/note/$sessionId'
+      preLoaderRoute: typeof AppNoteSessionIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/main/_layout/': {
@@ -198,8 +156,6 @@ const AppMainLayoutRouteWithChildren = AppMainLayoutRoute._addFileChildren(
 
 interface AppRouteRouteChildren {
   AppComposerRoute: typeof AppComposerRoute
-  AppInstructionRoute: typeof AppInstructionRoute
-  AppOnboardingRoute: typeof AppOnboardingRoute
   AppIndexRoute: typeof AppIndexRoute
   AppMainLayoutRoute: typeof AppMainLayoutRouteWithChildren
   AppNoteSessionIdRoute: typeof AppNoteSessionIdRoute
@@ -207,8 +163,6 @@ interface AppRouteRouteChildren {
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppComposerRoute: AppComposerRoute,
-  AppInstructionRoute: AppInstructionRoute,
-  AppOnboardingRoute: AppOnboardingRoute,
   AppIndexRoute: AppIndexRoute,
   AppMainLayoutRoute: AppMainLayoutRouteWithChildren,
   AppNoteSessionIdRoute: AppNoteSessionIdRoute,
