@@ -20,7 +20,7 @@ crate-type = ["staticlib", "rlib"]
 tauri-build = { workspace = true, features = [] }
 
 [dependencies]
-tauri = { workspace = true, features = ["specta", "macos-private-api", "protocol-asset"] }
+tauri = { workspace = true, features = ["specta", "protocol-asset"] }
 
 tauri-plugin-agent = { workspace = true }
 tauri-plugin-analytics = { workspace = true }
@@ -46,7 +46,6 @@ tauri-plugin-git = { workspace = true }
 tauri-plugin-hooks = { workspace = true }
 tauri-plugin-http = { workspace = true }
 tauri-plugin-icon = { workspace = true }
-tauri-plugin-importer = { workspace = true }
 tauri-plugin-js = { workspace = true }
 tauri-plugin-local-llm = { workspace = true }
 tauri-plugin-local-stt = { workspace = true }
@@ -58,7 +57,6 @@ tauri-plugin-notify = { workspace = true }
 tauri-plugin-opener = { workspace = true }
 tauri-plugin-opener2 = { workspace = true }
 tauri-plugin-os = { workspace = true }
-tauri-plugin-overlay = { workspace = true }
 tauri-plugin-path2 = { workspace = true }
 tauri-plugin-permissions = { workspace = true }
 tauri-plugin-prevent-default = { workspace = true }
@@ -112,11 +110,6 @@ tracing = { workspace = true }
 default = []
 dev = ["dep:hypr-audio-mock"]
 devtools = ["tauri/devtools", "dep:hypr-audio-mock"]
-automation = ["tauri-plugin-automation"]
-
-[target.'cfg(target_os = "macos")'.dependencies]
-tauri-plugin-automation = { version = "0.1", optional = true }
-hypr-intercept = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -60,7 +60,7 @@ jobs:
           Get-ChildItem $vcrt | Format-Table Name,Length
 
       - name: Build Tauri app
-        run: pnpm exec tauri build --ci --bundles nsis --no-sign --target x86_64-pc-windows-msvc --config ./src-tauri/tauri.conf.staging.json --features devtools
+        run: pnpm exec tauri build --ci --bundles nsis --no-sign --features devtools
         working-directory: apps/desktop
         env:
           POSTHOG_API_KEY: phc_local_smoke

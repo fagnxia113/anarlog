@@ -39,12 +39,6 @@ fn start_exit_hard_fallback() {
 }
 
 fn should_force_quit() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        return hypr_intercept::should_force_quit();
-    }
-
-    #[cfg(not(target_os = "macos"))]
     false
 }
 
@@ -130,12 +124,6 @@ pub async fn main() {
         .manage(audio)
         .manage(db.clone());
 
-    // https://docs.crabnebula.dev/plugins/tauri-e2e-tests/#macos-support
-    #[cfg(all(target_os = "macos", feature = "automation"))]
-    {
-        builder = builder.plugin(tauri_plugin_automation::init());
-    }
-
     // https://v2.tauri.app/plugin/deep-linking/#desktop
     // should always be the first plugin
     {
@@ -157,11 +145,6 @@ pub async fn main() {
             cloudsync_config,
         ))
         .plugin(tauri_plugin_bedrock::init());
-
-    #[cfg(target_os = "macos")]
-    {
-        builder = builder.plugin(tauri_plugin_importer::init());
-    }
 
     builder = builder
         .plugin(tauri_plugin_calendar::init())
@@ -190,7 +173,6 @@ pub async fn main() {
         .plugin(tauri_plugin_dock::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_notify::init())
-        .plugin(tauri_plugin_overlay::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_store2::init())
@@ -345,15 +327,8 @@ pub async fn main() {
         AppWindow::Main.show(&app_handle).unwrap();
     }
 
-    #[cfg(target_os = "macos")]
-    hypr_intercept::setup_force_quit_handler();
-
     #[allow(unused_variables)]
     app.run(move |app, event| match event {
-        #[cfg(target_os = "macos")]
-        tauri::RunEvent::Reopen { .. } => {
-            AppWindow::Main.show(app).unwrap();
-        }
         tauri::RunEvent::ExitRequested { api, .. } => {
             if let Some(ref ctx) = root_supervisor_ctx_for_run {
                 ctx.mark_exiting();
@@ -405,16 +380,6 @@ fn exit_after_startup_failure(error: &impl std::fmt::Display) -> ! {
     eprintln!("{message}");
     tracing::error!(error = %error, "desktop startup failed");
     sentry::capture_message(&message, sentry::Level::Error);
-
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("/usr/bin/osascript")
-            .args([
-                "-e",
-                "display alert \"zhnote could not start\" message \"Your existing data was left unchanged. Please restart the app. If the problem continues, contact support.\" as critical buttons {\"OK\"} default button \"OK\"",
-            ])
-            .spawn();
-    }
 
     std::process::exit(1);
 }
