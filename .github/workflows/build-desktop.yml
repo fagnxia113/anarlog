@@ -36,6 +36,29 @@ jobs:
       - name: Build frontend
         run: pnpm -F @hypr/desktop build
 
+      - name: Bundle VC++ Runtime DLLs
+        shell: pwsh
+        run: |
+          $vcrt = "apps/desktop/src-tauri/resources/vcrt"
+          New-Item -ItemType Directory -Force -Path $vcrt | Out-Null
+          $redist = "$env:TEMP\vc_redist.x64.exe"
+          Write-Host "Downloading VC++ Redistributable x64..."
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $redist
+          Write-Host "Installing VC++ Redistributable (silent)..."
+          Start-Process -FilePath $redist -ArgumentList "/install","/quiet","/norestart" -Wait
+          $system32 = "$env:SystemRoot\System32"
+          $dlls = @("MSVCP140.dll","MSVCP140_1.dll","MSVCP140_2.dll","VCRUNTIME140.dll","VCRUNTIME140_1.dll")
+          foreach ($dll in $dlls) {
+            $src = Join-Path $system32 $dll
+            if (Test-Path $src) {
+              Copy-Item $src -Destination $vcrt -Force
+              Write-Host "Copied $dll"
+            } else {
+              Write-Host "WARN: $dll not found in System32"
+            }
+          }
+          Get-ChildItem $vcrt | Format-Table Name,Length
+
       - name: Build Tauri app
         run: pnpm exec tauri build --ci --bundles nsis --no-sign --target x86_64-pc-windows-msvc --config ./src-tauri/tauri.conf.staging.json --features devtools
         working-directory: apps/desktop
