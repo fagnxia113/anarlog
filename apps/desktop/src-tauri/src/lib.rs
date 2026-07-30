@@ -109,10 +109,13 @@ pub async fn main() {
         .plugin(tauri_plugin_template::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_detect::init())
+        .plugin(tauri_plugin_misc::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_notify::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_store2::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_updater2::init())
         .plugin(tauri_plugin_tray::init())
         .plugin(tauri_plugin_settings::init())
@@ -122,6 +125,7 @@ pub async fn main() {
         .plugin(tauri_plugin_tantivy::init())
         .plugin(tauri_plugin_audio_priority::init())
         .plugin(tauri_plugin_local_llm::init())
+        .plugin(tauri_plugin_sidecar2::init())
         .plugin(tauri_plugin_local_stt::init(
             tauri_plugin_local_stt::InitOptions {
                 parent_supervisor: root_supervisor_ctx
