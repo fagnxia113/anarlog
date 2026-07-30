@@ -6,8 +6,6 @@ import { events as windowsEvents } from "@hypr/plugin-windows";
 
 import { useNewNote } from "./useNewNote";
 
-import { AuthProvider } from "~/auth";
-import { BillingProvider } from "~/auth/billing";
 import { DevtoolsFloatingPanelHost } from "~/devtools-panel/host";
 import { UndoDeleteToast } from "~/sidebar/toast/undo-delete-toast";
 import { isTabInputSupported, useTabs } from "~/store/zustand/tabs";
@@ -15,13 +13,7 @@ import { isTabInputSupported, useTabs } from "~/store/zustand/tabs";
 export default function MainAppLayout() {
   useNavigationEvents();
 
-  return (
-    <AuthProvider>
-      <BillingProvider>
-        <MainAppContent />
-      </BillingProvider>
-    </AuthProvider>
-  );
+  return <MainAppContent />;
 }
 
 function MainAppContent() {

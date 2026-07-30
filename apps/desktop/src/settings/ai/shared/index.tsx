@@ -31,7 +31,6 @@ import {
   requiresEntitlement,
 } from "./eligibility";
 
-import { useBillingAccess } from "~/auth/billing-context";
 import {
   isKeychainAccessError,
   repairKeychainAccess,
@@ -43,6 +42,14 @@ import { SettingsAlertToast } from "~/shared/ui/settings-alert";
 
 export * from "./hypr-cloud-button";
 export * from "./model-combobox";
+
+function useBillingAccess() {
+  return {
+    isPaid: true as const,
+    isPro: true as const,
+    upgradeToPro: () => {},
+  };
+}
 
 type ProviderType = "stt" | "llm";
 

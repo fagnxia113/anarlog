@@ -10,8 +10,6 @@ import {
 import type { ToastType } from "./types";
 import { useDismissedToasts } from "./useDismissedToasts";
 
-import { useAuth } from "~/auth";
-import { useCloudsyncInitialSyncProgress } from "~/auth/cloudsync-progress";
 import { useNotifications } from "~/contexts/notifications";
 import { useConfigValues } from "~/shared/config";
 import { useLatestRef } from "~/shared/hooks/useLatestRef";
@@ -24,6 +22,24 @@ import {
   isHyprnoteCloudSttModel,
 } from "~/stt/capabilities";
 import { useListener } from "~/stt/contexts";
+
+const LOCAL_AUTH = {
+  session: { user: { id: "local-user" } },
+  signIn: async () => {},
+};
+
+const LOCAL_CLOUDSYNC_PROGRESS = {
+  state: "idle" as "idle" | "syncing",
+  toastId: null,
+};
+
+function useAuth() {
+  return LOCAL_AUTH;
+}
+
+function useCloudsyncInitialSyncProgress() {
+  return LOCAL_CLOUDSYNC_PROGRESS;
+}
 
 export function ToastNotifications() {
   const auth = useAuth();

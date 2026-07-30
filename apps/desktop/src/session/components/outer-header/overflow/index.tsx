@@ -26,7 +26,6 @@ import { Listening } from "./listening";
 import { ShowInFinder } from "./misc";
 
 import { useAudioPlayer } from "~/audio-player";
-import { openFloatingMeetingPanel } from "~/meeting-float/host";
 import { useRegenerateTranscript } from "~/session/components/note-input/transcript/actions";
 import {
   useCurrentNoteHasContent,
@@ -37,6 +36,11 @@ import { useConfigValue } from "~/shared/config";
 import type { EditorView } from "~/store/zustand/tabs/schema";
 import { useListener } from "~/stt/contexts";
 import { useUploadFile } from "~/stt/useUploadFile";
+
+async function openFloatingMeetingPanel(_options: {
+  sessionId: string;
+  enabled: boolean;
+}): Promise<void> {}
 
 export function OverflowButton({
   allowListening = true,

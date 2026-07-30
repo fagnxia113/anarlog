@@ -14,17 +14,8 @@ exclude = ["crates/vad-ext"]
 
 [workspace.dependencies]
 hypr-aec = { path = "crates/aec", package = "aec" }
-hypr-agc = { path = "crates/agc", package = "agc" }
 hypr-agent-access = { path = "crates/agent-access", package = "agent-access" }
 hypr-am = { path = "crates/am", package = "am" }
-hypr-amp = { path = "crates/amp", package = "amp" }
-hypr-analytics = { path = "crates/analytics", package = "analytics" }
-hypr-api-auth = { path = "crates/api-auth", package = "api-auth" }
-hypr-api-client = { path = "crates/api-client", package = "api-client" }
-hypr-api-env = { path = "crates/api-env", package = "api-env" }
-hypr-api-error = { path = "crates/api-error", package = "api-error" }
-hypr-api-nango = { path = "crates/api-nango", package = "api-nango" }
-hypr-apple-calendar = { path = "crates/apple-calendar", package = "apple-calendar" }
 hypr-askama-utils = { path = "crates/askama-utils", package = "askama-utils" }
 hypr-audacity = { path = "crates/audacity", package = "audacity" }
 hypr-audio = { path = "crates/audio", package = "audio" }
@@ -39,12 +30,7 @@ hypr-audio-snapshot = { path = "crates/audio-snapshot", package = "audio-snapsho
 hypr-audio-sync = { path = "crates/audio-sync", package = "audio-sync" }
 hypr-audio-utils = { path = "crates/audio-utils", package = "audio-utils" }
 hypr-buffer = { path = "crates/buffer", package = "buffer" }
-hypr-calendar-interface = { path = "crates/calendar-interface", package = "calendar-interface" }
-hypr-chatwoot = { path = "crates/chatwoot", package = "chatwoot" }
-hypr-claude = { path = "crates/claude", package = "claude" }
-hypr-cli-process = { path = "crates/cli-process", package = "cli-process" }
 hypr-cloudsync = { path = "crates/cloudsync", package = "cloudsync" }
-hypr-codex = { path = "crates/codex", package = "codex" }
 hypr-data = { path = "crates/data", package = "data" }
 hypr-db-app = { path = "crates/db-app", package = "db-app" }
 hypr-db-change = { path = "crates/db-change", package = "db-change" }
@@ -58,9 +44,6 @@ hypr-device-monitor = { path = "crates/device-monitor", package = "device-monito
 hypr-docs = { path = "crates/docs", package = "docs" }
 hypr-download-interface = { path = "crates/download-interface", package = "download-interface" }
 hypr-e2ee = { path = "crates/e2ee", package = "e2ee" }
-hypr-embedding = { path = "crates/embedding", package = "embedding" }
-hypr-exa = { path = "crates/exa", package = "exa" }
-hypr-exedev = { path = "crates/exedev", package = "exedev" }
 hypr-export-core = { path = "crates/export-core", package = "export-core" }
 hypr-file = { path = "crates/file", package = "file" }
 hypr-frontmatter = { path = "crates/frontmatter", package = "frontmatter" }
@@ -68,76 +51,39 @@ hypr-fs-format = { path = "crates/fs-format", package = "fs-format" }
 hypr-fs-sync-core = { path = "crates/fs-sync-core", package = "fs-sync-core" }
 hypr-gbnf = { path = "crates/gbnf", package = "gbnf" }
 hypr-gguf = { path = "crates/gguf", package = "gguf" }
-hypr-github-issues = { path = "crates/github-issues", package = "github-issues" }
-hypr-google-calendar = { path = "crates/google-calendar", package = "google-calendar" }
-hypr-google-drive = { path = "crates/google-drive", package = "google-drive" }
-hypr-google-mail = { path = "crates/google-mail", package = "google-mail" }
-hypr-hf = { path = "crates/hf", package = "hf" }
-hypr-hid-host = { path = "crates/hid-host", package = "hid-host" }
-hypr-hid-interface = { path = "crates/hid-interface", package = "hid-interface" }
-hypr-hooks = { path = "crates/hooks", package = "hooks" }
 hypr-host = { path = "crates/host", package = "host" }
-hypr-http = { path = "crates/http", package = "hypr-http-utils" }
-hypr-importer-core = { path = "crates/importer-core", package = "importer-core" }
-hypr-intercept = { path = "crates/intercept", package = "intercept" }
-hypr-jina = { path = "crates/jina", package = "jina" }
 hypr-language = { path = "crates/language", package = "language" }
-hypr-linear = { path = "crates/linear", package = "linear" }
 hypr-listener-core = { path = "crates/listener-core", package = "listener-core" }
 hypr-listener2-core = { path = "crates/listener2-core", package = "listener2-core" }
-hypr-llm-proxy = { path = "crates/llm-proxy", package = "llm-proxy" }
-hypr-llm-types = { path = "crates/llm-types", package = "llm-types" }
 hypr-lmstudio = { path = "crates/lmstudio", package = "lmstudio" }
 hypr-local-llm-core = { path = "crates/local-llm-core", package = "local-llm-core" }
 hypr-local-model = { path = "crates/local-model", package = "local-model" }
 hypr-local-stt-core = { path = "crates/local-stt-core", package = "local-stt-core" }
-hypr-local-stt-server = { path = "crates/local-stt-server", package = "local-stt-server" }
-hypr-loops = { path = "crates/loops", package = "loops" }
-hypr-mcp = { path = "crates/mcp", package = "mcp" }
 hypr-model-downloader = { path = "crates/model-downloader", package = "model-downloader" }
 hypr-model-manager = { path = "crates/model-manager", package = "model-manager" }
 hypr-mp3 = { path = "crates/mp3", package = "mp3" }
-hypr-nango = { path = "crates/nango", package = "nango" }
 hypr-notification = { path = "crates/notification", package = "notification" }
 hypr-notification-interface = { path = "crates/notification-interface", package = "notification-interface" }
 hypr-observability = { path = "crates/observability", package = "observability" }
 hypr-onnx = { path = "crates/onnx", package = "onnx" }
-hypr-opencode = { path = "crates/opencode", package = "opencode" }
 hypr-openrouter = { path = "crates/openrouter", package = "openrouter" }
-hypr-outlook-calendar = { path = "crates/outlook-calendar", package = "outlook-calendar" }
-hypr-porkbun = { path = "crates/porkbun", package = "porkbun" }
-hypr-power = { path = "crates/power", package = "power" }
-hypr-pyannote-cloud = { path = "crates/pyannote-cloud", package = "pyannote-cloud" }
 hypr-pyannote-local = { path = "crates/pyannote-local", package = "pyannote-local" }
-hypr-recall = { path = "crates/recall", package = "recall" }
 hypr-resampler = { path = "crates/resampler", package = "resampler" }
-hypr-s3 = { path = "crates/s3", package = "s3" }
-hypr-screen-core = { path = "crates/screen-core", package = "screen-core" }
-hypr-segmentation = { path = "crates/segmentation", package = "segmentation" }
-hypr-slack-web = { path = "crates/slack-web", package = "slack-web" }
 hypr-storage = { path = "crates/storage", package = "storage" }
-hypr-supabase-auth = { path = "crates/supabase-auth", package = "supabase-auth" }
-hypr-supabase-storage = { path = "crates/supabase-storage", package = "supabase-storage" }
 hypr-supervisor = { path = "crates/supervisor", package = "supervisor" }
-hypr-tantivy-core = { path = "crates/tantivy", package = "tantivy-core" }
 hypr-tauri-utils = { path = "crates/tauri-utils", package = "tauri-utils" }
-hypr-teems = { path = "crates/teems", package = "teems" }
 hypr-template-app = { path = "crates/template-app", package = "template-app" }
 hypr-template-app-legacy = { path = "crates/template-app-legacy", package = "template-app-legacy" }
 hypr-template-eval = { path = "crates/template-eval", package = "template-eval" }
 hypr-template-support = { path = "crates/template-support", package = "template-support" }
-hypr-ticket-interface = { path = "crates/ticket-interface", package = "ticket-interface" }
 hypr-tiptap = { path = "crates/tiptap", package = "tiptap" }
 hypr-transcribe-core = { path = "crates/transcribe-core", package = "transcribe-core" }
-hypr-transcribe-proxy = { path = "crates/transcribe-proxy", package = "transcribe-proxy" }
 hypr-transcribe-soniqo = { path = "crates/transcribe-soniqo", package = "transcribe-soniqo" }
 hypr-transcribe-whisper-local = { path = "crates/transcribe-whisper-local", package = "transcribe-whisper-local" }
 hypr-transcript = { path = "crates/transcript", package = "transcript" }
 hypr-transcription-core = { path = "crates/transcription-core", package = "transcription-core" }
-hypr-updater-core = { path = "crates/updater-core", package = "updater-core" }
 hypr-vad = { path = "crates/vad", package = "vad" }
 hypr-vad-masking = { path = "crates/vad-masking", package = "vad-masking" }
-hypr-version = { path = "crates/version", package = "version" }
 hypr-whisper = { path = "crates/whisper", package = "whisper" }
 hypr-whisper-local = { path = "crates/whisper-local", package = "whisper-local" }
 hypr-whisper-local-model = { path = "crates/whisper-local-model", package = "whisper-local-model" }
@@ -219,11 +165,6 @@ camino = "1"
 
 anyhow = "1"
 approx = "0.5.1"
-async-stripe = { version = "1.0.0-rc.5", default-features = false, features = [
-  "default-tls",
-] }
-async-stripe-billing = { version = "1.0.0-rc.5", default-features = false }
-async-stripe-core = { version = "1.0.0-rc.5", default-features = false }
 backon = "1.6.0"
 base64 = "0.22.1"
 bytes = "1.11"
@@ -313,14 +254,12 @@ specta = "2.0.0-rc.22"
 specta-typescript = "0.0.9"
 tauri-specta = "2.0.0-rc.21"
 
-cidre = "0.15"
 cpal = "0.17"
 crossterm = { version = "0.29", features = ["event-stream"] }
 dasp = { version = "0.11.0", features = ["interpolate", "interpolate-linear"] }
 earshot = "0.1.0"
 hound = "3.5.1"
 htmd = "0.5.0"
-macos-accessibility-client = "0.0.1"
 mp3lame-encoder = "0.2.2"
 ratatui = "0.30"
 realfft = "3.5.0"
@@ -329,36 +268,15 @@ rodio = "0.22"
 tachyonfx = "0.25"
 vorbis_rs = "0.5.5"
 
-deepgram = { version = "0.7", default-features = false }
-hf-hub = { git = "https://github.com/huggingface/hf-hub", rev = "5510260", default-features = false, features = [
-  "tokio",
-] }
+hf-hub = { git = "https://github.com/huggingface/hf-hub", rev = "5510260", default-features = false, features = ["tokio"] }
 hidapi = { version = "2.6.5", features = ["macos-shared-device"] }
 libsql = "0.9.24"
-
-block2 = "0.6"
-core-foundation = "0.10"
-objc2 = "0.6"
-objc2-app-kit = "0.3.2"
-objc2-application-services = "0.3.2"
-objc2-av-foundation = "0.3.2"
-objc2-contacts = "0.3.2"
-objc2-core-foundation = "0.3.2"
-objc2-core-graphics = "0.3.2"
-objc2-core-location = "0.3.2"
-objc2-event-kit = "0.3.2"
-objc2-foundation = "0.3.2"
-objc2-security = "0.3.2"
-objc2-user-notifications = "0.3.2"
-security-framework = "3.7"
 
 hmac = "0.13"
 sha2 = "0.11"
 
 tokenizers = "0.22"
 whichlang = "0.1"
-
-swift-rs = { git = "https://github.com/yujonglee/swift-rs", rev = "41a1605" }
 
 wasapi = "0.23.0"
 windows = "0.62.2"

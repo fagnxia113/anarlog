@@ -54,7 +54,6 @@ import {
   sttModelQueries,
 } from "./shared";
 
-import { useBillingAccess } from "~/auth/billing-context";
 import { useNotifications } from "~/contexts/notifications";
 import { providerRowId, ProviderIconSlot } from "~/settings/ai/shared";
 import {
@@ -87,6 +86,14 @@ import {
   getDefaultSttModel,
   getPreferredProviderModel,
 } from "~/stt/model-selection";
+
+function useBillingAccess() {
+  return {
+    isPaid: true as const,
+    isPro: true as const,
+    upgradeToPro: () => {},
+  };
+}
 
 export function SelectProviderAndModel() {
   const { t } = useLingui();

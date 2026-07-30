@@ -7,12 +7,23 @@ import {
 import { getCurrentWebviewWindowLabel } from "@hypr/plugin-windows";
 import { addDays, safeParseDate, startOfDay, TZDate } from "@hypr/utils";
 
-import { useIgnoredEvents } from "~/calendar/ignored-events";
-import { useTimelineEventsTable } from "~/calendar/queries";
 import { useConfigValue } from "~/shared/config";
 import { useCurrentDay } from "~/shared/hooks/useCurrentDay";
 import { useMountEffect } from "~/shared/hooks/useMountEffect";
 import type { TimelineEventRow } from "~/sidebar/timeline/utils";
+
+function useTimelineEventsTable(): Record<string, TimelineEventRow> | null {
+  return null;
+}
+
+function useIgnoredEvents(): {
+  isIgnored: (
+    _trackingId: string | null | undefined,
+    _recurrenceSeriesId: string | null | undefined,
+  ) => boolean;
+} {
+  return { isIgnored: () => false };
+}
 
 const PUBLISHED_SCHEDULE_HORIZON_MS = 7 * 24 * 60 * 60 * 1000;
 

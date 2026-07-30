@@ -10,7 +10,6 @@ import retextStringify from "retext-stringify";
 import { unified } from "unified";
 import type { VFile } from "vfile";
 
-import { useSessionEventParticipants } from "~/calendar/queries";
 import { liveQueryClient } from "~/db";
 import { useSession, useSessionParticipants } from "~/session/queries";
 import { useConfigValue } from "~/shared/config";
@@ -21,7 +20,7 @@ const MAX_TRANSCRIPTION_HINTS = 50;
 export function useKeywords(sessionId: string) {
   const session = useSession(sessionId);
   const participants = useSessionParticipants(sessionId);
-  const eventParticipants = useSessionEventParticipants(sessionId);
+  const eventParticipants: { is_current_user: boolean; name: string }[] = [];
   const dictionaryTerms = useConfigValue("personalization_dictionary_terms");
 
   return useMemo(

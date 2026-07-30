@@ -4,8 +4,6 @@ import { useMemo } from "react";
 import { commands as localSttCommands } from "@hypr/plugin-local-stt";
 import type { AIProviderStorage } from "@hypr/store";
 
-import { useAuth } from "~/auth";
-import { useBillingAccess } from "~/auth/billing-context";
 import { env } from "~/env";
 import { type ProviderId } from "~/settings/ai/stt/shared";
 import { useAiProvider } from "~/settings/providers";
@@ -14,6 +12,22 @@ import {
   isHyprnoteCloudSttModel,
   isHyprnoteLocalSttModel,
 } from "~/stt/capabilities";
+
+const LOCAL_AUTH = {
+  session: { user: { id: "local-user" }, access_token: "local-token" },
+};
+
+function useAuth() {
+  return LOCAL_AUTH;
+}
+
+function useBillingAccess() {
+  return {
+    isPaid: true as const,
+    isPro: true as const,
+    upgradeToPro: () => {},
+  };
+}
 
 export const useSTTConnection = () => {
   const auth = useAuth();

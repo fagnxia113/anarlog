@@ -21,8 +21,6 @@ import {
 } from "./selection";
 import { type Provider, PROVIDERS } from "./shared";
 
-import { useAuth } from "~/auth";
-import { useBillingAccess } from "~/auth/billing-context";
 import { providerRowId, ProviderIconSlot } from "~/settings/ai/shared";
 import {
   getProviderSelectionBlockers,
@@ -57,6 +55,20 @@ import { useAiProvidersState } from "~/settings/providers";
 import { setSettingValues, useSettingsReady } from "~/settings/queries";
 import { useConfigValues } from "~/shared/config";
 import { SettingsAlertToast } from "~/shared/ui/settings-alert";
+
+const LOCAL_AUTH = { session: { user: { id: "local-user" } } };
+
+function useAuth() {
+  return LOCAL_AUTH;
+}
+
+function useBillingAccess() {
+  return {
+    isPaid: true as const,
+    isPro: true as const,
+    upgradeToPro: () => {},
+  };
+}
 
 export function SelectProviderAndModel() {
   const { t } = useLingui();

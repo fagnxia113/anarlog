@@ -25,7 +25,6 @@ import {
   TimelinePrecision,
 } from "./utils";
 
-import { useIgnoredEvents } from "~/calendar/ignored-events";
 import { writeSessionContextDragData } from "~/chat/context/session-drag";
 import { useDeleteSession } from "~/session/hooks/useDeleteSession";
 import { useIsSessionEnhancing } from "~/session/hooks/useEnhancedNotes";
@@ -38,6 +37,19 @@ import { useSessionTitle } from "~/store/zustand/live-title";
 import { useTabs } from "~/store/zustand/tabs";
 import { useTimelineSelection } from "~/store/zustand/timeline-selection";
 import { useListener } from "~/stt/contexts";
+
+function useIgnoredEvents() {
+  return {
+    isIgnored: (
+      _trackingId: string | null | undefined,
+      _recurrenceSeriesId: string | null | undefined,
+    ): boolean => false,
+    ignoreEvent: (_trackingId: string) => {},
+    unignoreEvent: (_trackingId: string) => {},
+    ignoreSeries: (_seriesId: string) => {},
+    unignoreSeries: (_seriesId: string) => {},
+  };
+}
 
 const EMPTY_TIMELINE_ITEM_KEYS: string[] = [];
 const EMPTY_MANAGED_SHARED_SESSION_IDS = new Set<string>();

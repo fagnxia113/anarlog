@@ -12,8 +12,6 @@ import {
 } from "@hypr/ui/components/ui/popover";
 import { cn } from "@hypr/utils";
 
-import { useSessionEventParticipants } from "~/calendar/queries";
-import { createHuman, useHumans } from "~/contacts/queries";
 import {
   addSessionParticipant,
   useSession,
@@ -21,6 +19,22 @@ import {
 } from "~/session/queries";
 import type { Segment } from "~/stt/live-segment";
 import { assignTranscriptSpeaker } from "~/stt/queries";
+
+function useHumans(): Array<{ id: string; name: string; email: string }> {
+  return [];
+}
+
+async function createHuman(_params: {
+  ownerUserId: string;
+  name: string;
+  email?: string;
+}): Promise<string> {
+  return "";
+}
+
+function useSessionEventParticipants(_sessionId: string): EventParticipant[] {
+  return [];
+}
 
 type AssignmentMode = "all" | "segment";
 

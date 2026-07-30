@@ -8,14 +8,11 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { extractReasoningMiddleware, wrapLanguageModel } from "ai";
 import { useMemo, useRef } from "react";
 
-import type { CharTask } from "@hypr/api-client";
 import type { AIProviderStorage } from "@hypr/store";
 
 import { createAuthFetch } from "../auth-fetch";
 import { createTracedFetch, tracedFetch } from "../traced-fetch";
 
-import { useAuth } from "~/auth";
-import { useBillingAccess } from "~/auth/billing-context";
 import { env } from "~/env";
 import { type ProviderId, PROVIDERS } from "~/settings/ai/llm/shared";
 import {
@@ -24,6 +21,16 @@ import {
 } from "~/settings/ai/shared/eligibility";
 import { useAiProvider } from "~/settings/providers";
 import { useConfigValues } from "~/shared/config";
+import { type CharTask } from "~/shared/utils";
+
+const useAuth = () => ({
+  session: {
+    access_token: "",
+    user: { id: "local-user", email: "local@local" },
+  },
+});
+
+const useBillingAccess = () => ({ isPaid: true, isPro: true, isReady: true });
 
 type LanguageModelV3 = Parameters<typeof wrapLanguageModel>[0]["model"];
 

@@ -13,11 +13,25 @@ import { useHotkeys } from "react-hotkeys-hook";
 
 import { cn } from "@hypr/utils";
 
-import { useAuth } from "~/auth";
 import { useSessionSummaries } from "~/session/queries";
-import { useDurableSharedNotes } from "~/shared-notes/cache";
 import { useMainContentCenterOffset } from "~/shared/main/content-offset";
 import { useTabs } from "~/store/zustand/tabs";
+
+const LOCAL_AUTH = { session: { user: { id: "local-user" } } };
+
+function useAuth() {
+  return LOCAL_AUTH;
+}
+
+function useDurableSharedNotes(_userId: string | undefined) {
+  return [] as Array<{
+    manageAccess: boolean;
+    sessionId: string;
+    shareId: string;
+    title: string | null;
+    publishedAt: string;
+  }>;
+}
 
 const MAX_RECENT_DISPLAY = 5;
 

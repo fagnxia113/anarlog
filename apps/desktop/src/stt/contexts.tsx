@@ -17,10 +17,6 @@ import {
   createAutoStopEndedNotificationKey,
 } from "./auto-stop-notification";
 
-import {
-  getNearbyCalendarEvents,
-  type NearbyCalendarEvent,
-} from "~/calendar/queries";
 import { loadSessionEvent } from "~/session/queries";
 import { useConfigValue } from "~/shared/config";
 import { useMountEffect } from "~/shared/hooks/useMountEffect";
@@ -73,6 +69,22 @@ const BROWSER_AUTO_STOP_APP_IDS = new Set([
 ]);
 
 const UNRELIABLE_AUTO_STOP_APP_IDS = new Set(["com.kakao.KakaoTalkMac"]);
+
+type NearbyCalendarEvent = {
+  id: string;
+  title: string;
+  meetingLink?: string;
+  location?: string;
+  description?: string;
+  participantNames: string[];
+};
+
+async function getNearbyCalendarEvents(
+  _nowMs: number,
+  _windowMs: number,
+): Promise<NearbyCalendarEvent[]> {
+  return [];
+}
 
 type MicApp = { id: string; name: string };
 type NearbyEvent = NearbyCalendarEvent;

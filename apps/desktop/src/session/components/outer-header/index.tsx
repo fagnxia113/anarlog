@@ -16,13 +16,7 @@ import { MetadataButton } from "./metadata";
 import { OverflowButton } from "./overflow";
 
 import { useAudioPlayer } from "~/audio-player";
-import { useNow } from "~/calendar/hooks";
 import { useShell } from "~/contexts/shell";
-import {
-  buildWelcomeNoteDemoUrl,
-  WELCOME_NOTE_TRACKING_ID,
-} from "~/onboarding/welcome-note.constants";
-import { SessionShareButton } from "~/session-sharing";
 import { useEventCountdown } from "~/session/hooks/useEventCountdown";
 import {
   getRemoteMeeting,
@@ -38,6 +32,23 @@ import {
   isMainWebviewWindow,
   requestMainListenerControl,
 } from "~/stt/window-control";
+
+function useNow(): Date {
+  return new Date();
+}
+
+const WELCOME_NOTE_TRACKING_ID = "";
+
+function buildWelcomeNoteDemoUrl(
+  meetingLink: string,
+  _callback: unknown,
+): string {
+  return meetingLink;
+}
+
+function SessionShareButton(_props: { sessionId: string }) {
+  return null;
+}
 
 export function OuterHeader({
   sessionId,

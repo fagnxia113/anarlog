@@ -9,8 +9,20 @@ import {
 import { extractContextRefsFromMessages } from "./refs";
 
 import type { HyprUIMessage } from "~/chat/types";
-import { useHumans, useOrganizations } from "~/contacts/queries";
 import { useSessionSummaries } from "~/session/queries";
+
+function useHumans(): Array<{
+  id: string;
+  name: string;
+  email: string;
+  organizationId: string | null;
+}> {
+  return [];
+}
+
+function useOrganizations(): Array<{ id: string; name: string }> {
+  return [];
+}
 
 function getSessionDisplayData(
   sessions: ReturnType<typeof useSessionSummaries>,

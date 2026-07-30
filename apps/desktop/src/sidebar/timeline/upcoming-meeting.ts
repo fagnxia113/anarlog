@@ -8,10 +8,25 @@ import {
   type TimelineBucket,
 } from "./utils";
 
-import { useIgnoredEvents } from "~/calendar/ignored-events";
-import { useTimelineTables } from "~/calendar/queries";
 import { useConfigValue } from "~/shared/config";
 import { useCurrentDay } from "~/shared/hooks/useCurrentDay";
+
+function useIgnoredEvents() {
+  return {
+    isIgnored: (
+      _trackingId: string | null | undefined,
+      _recurrenceSeriesId: string | null | undefined,
+    ): boolean => false,
+    ignoreEvent: (_trackingId: string) => {},
+    unignoreEvent: (_trackingId: string) => {},
+    ignoreSeries: (_seriesId: string) => {},
+    unignoreSeries: (_seriesId: string) => {},
+  };
+}
+
+function useTimelineTables() {
+  return { timelineEventsTable: null, timelineSessionsTable: null };
+}
 
 const UPCOMING_MEETING_VISIBLE_WINDOW_MS = 5 * 60 * 1000;
 const UPCOMING_MEETING_STATUS_TICK_MS = 1_000;

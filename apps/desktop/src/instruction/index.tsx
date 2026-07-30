@@ -10,7 +10,14 @@ import { Button } from "@hypr/ui/components/ui/button";
 import { Input } from "@hypr/ui/components/ui/input";
 import { cn } from "@hypr/utils";
 
-import { useAuth } from "~/auth";
+const useAuth = () => ({
+  session: {
+    access_token: "",
+    user: { id: "local-user", email: "local@local" },
+  },
+  handleAuthCallback: async (_url: string) => {},
+  signIn: async () => {},
+});
 
 export type InstructionType = "sign-in" | "billing" | "integration";
 

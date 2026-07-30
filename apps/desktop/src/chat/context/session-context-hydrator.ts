@@ -1,6 +1,5 @@
 import type { SessionContext, Transcript } from "@hypr/plugin-template";
 
-import { loadHumansByIds } from "~/contacts/queries";
 import {
   loadSessionContentSnapshot,
   type SessionContentSnapshot,
@@ -14,6 +13,12 @@ import {
   collectAssignedHumanIdsFromTranscriptRows,
   renderTranscriptSegments,
 } from "~/stt/render-transcript";
+
+async function loadHumansByIds(
+  _ids: string[],
+): Promise<Array<{ id: string; name: string }>> {
+  return [];
+}
 
 function extractEventName(event: unknown): string | null {
   if (!event || typeof event !== "object") {

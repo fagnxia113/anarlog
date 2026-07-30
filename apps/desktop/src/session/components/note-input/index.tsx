@@ -22,16 +22,23 @@ import { useSearch } from "./search/context";
 import { SummaryPreview } from "./summary-preview";
 import { Transcript } from "./transcript";
 
-import {
-  registerCanonicalSessionEditor,
-  unregisterCanonicalSessionEditor,
-} from "~/session-sharing/editor-activity";
 import { useCurrentNoteTab } from "~/session/components/shared";
 import { useScrollPreservation } from "~/shared/hooks/useScrollPreservation";
 import type { SessionMode } from "~/store/zustand/listener/general";
 import { type Tab, useTabs } from "~/store/zustand/tabs";
 import { type EditorView as TabEditorView } from "~/store/zustand/tabs/schema";
 import { useListener } from "~/stt/contexts";
+
+function registerCanonicalSessionEditor(
+  _sessionId: string,
+  _view: EditorView,
+  _flush: () => void,
+): void {}
+
+function unregisterCanonicalSessionEditor(
+  _sessionId: string,
+  _view: EditorView,
+): void {}
 
 export interface NoteInputHandle {
   focus: () => void;

@@ -23,12 +23,6 @@ import {
 } from "./event-contact-extraction";
 
 import { useLanguageModel } from "~/ai/hooks";
-import { useSessionEventParticipants } from "~/calendar/queries";
-import {
-  applyContactEnhancement,
-  createHuman,
-  useHumans,
-} from "~/contacts/queries";
 import {
   addSessionParticipant,
   removeSessionParticipant,
@@ -38,6 +32,34 @@ import {
 import { getSessionEvent } from "~/session/utils";
 import { useAutoCloser } from "~/shared/hooks/useAutoCloser";
 import { removeHumanSpeakerAssignments } from "~/stt/queries";
+
+function useHumans(): Array<{
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  organizationId: string;
+  jobTitle: string;
+}> {
+  return [];
+}
+
+async function createHuman(_params: {
+  ownerUserId: string;
+  name: string;
+}): Promise<string> {
+  return "";
+}
+
+async function applyContactEnhancement(_params: {
+  humanId: string;
+  ownerUserId: string;
+  changes: unknown;
+}): Promise<void> {}
+
+function useSessionEventParticipants(_sessionId: string): never[] {
+  return [];
+}
 
 export function ParticipantInput({ sessionId }: { sessionId: string }) {
   const {

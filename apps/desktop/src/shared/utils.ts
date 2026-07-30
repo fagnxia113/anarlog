@@ -49,3 +49,5 @@ export const DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000000";
 export const DEVICE_FINGERPRINT_HEADER = "x-device-fingerprint";
 export const REQUEST_ID_HEADER = "x-request-id";
 export const CHAR_TASK_HEADER = "x-char-task";
+
+export type CharTask = "transcribe" | "enhance" | "title" | "search" | "chat";

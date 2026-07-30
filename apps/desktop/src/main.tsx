@@ -23,7 +23,6 @@ import { AITaskWindowSyncBridge } from "./ai/task-window-sync";
 import { createToolRegistry } from "./contexts/tool-registry/core";
 import { env } from "./env";
 import { AppI18nProvider } from "./i18n/provider";
-import { FloatingMeetingWindowHost } from "./meeting-float/host";
 import { routeTree } from "./routeTree.gen";
 import { EventListeners } from "./services/event-listeners";
 import { TaskManager } from "./services/task-manager";
@@ -103,7 +102,6 @@ function AppRoot() {
       <TinyTickProvider manager={manager}>
         <App />
         {isMainWindow ? <TaskManager /> : null}
-        {isMainWindow ? <FloatingMeetingWindowHost /> : null}
         {isMainWindow ? <EventListeners /> : null}
         {isMainWindow ? <TrayScheduleSync /> : null}
         <Toaster position="bottom-right" theme={theme} />

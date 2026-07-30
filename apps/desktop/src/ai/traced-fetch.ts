@@ -1,9 +1,9 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
-import type { CharTask } from "@hypr/api-client";
 import { commands as miscCommands } from "@hypr/plugin-misc";
 
 import {
+  type CharTask,
   CHAR_TASK_HEADER,
   DEVICE_FINGERPRINT_HEADER,
   REQUEST_ID_HEADER,

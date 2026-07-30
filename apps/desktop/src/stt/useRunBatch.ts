@@ -8,8 +8,6 @@ import { persistTranscriptWrite } from "./persist-retry";
 import { getSessionKeywords } from "./useKeywords";
 import { useSTTConnection } from "./useSTTConnection";
 
-import { useAuth } from "~/auth";
-import { useBillingAccess } from "~/auth/billing-context";
 import { withCloudsyncActivity } from "~/db/cloudsync-activity";
 import { env } from "~/env";
 import {
@@ -27,6 +25,23 @@ import {
 } from "~/stt/capabilities";
 import { createTranscript } from "~/stt/queries";
 import type { SpeakerHintWithId, WordWithId } from "~/stt/types";
+
+const LOCAL_AUTH = {
+  session: { user: { id: "local-user" }, access_token: "local-token" },
+  refreshSession: async () => ({ access_token: "local-token" }),
+};
+
+function useAuth() {
+  return LOCAL_AUTH;
+}
+
+function useBillingAccess() {
+  return {
+    isPaid: true as const,
+    isPro: true as const,
+    upgradeToPro: () => {},
+  };
+}
 
 type RunOptions = {
   deferAudioFinalization?: boolean;

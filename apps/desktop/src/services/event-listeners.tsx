@@ -7,7 +7,6 @@ import {
 } from "@hypr/plugin-updater2";
 import { getCurrentWebviewWindowLabel } from "@hypr/plugin-windows";
 
-import { getCalendarEventStartedAt } from "~/calendar/queries";
 import { liveQueryClient } from "~/db";
 import { createSession, getOrCreateSessionForEventId } from "~/session/queries";
 import { setSettingValue } from "~/settings/queries";
@@ -22,6 +21,12 @@ import {
   getLiveTranscriptionConfig,
   getTranscriptionLanguages,
 } from "~/stt/capabilities";
+
+async function getCalendarEventStartedAt(
+  _eventId: string,
+): Promise<string | null> {
+  return null;
+}
 
 type CaptureIdentitySqlRow = {
   session_id: string;

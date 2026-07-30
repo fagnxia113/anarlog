@@ -5,7 +5,6 @@ import { Loader2Icon } from "lucide-react";
 
 import { commands as listenerCommands } from "@hypr/plugin-transcription";
 
-export { SettingsAccount } from "./account";
 import { AppSettingsView } from "./app-settings";
 import {
   CORE_TRANSCRIPTION_LANGUAGE_CODES,

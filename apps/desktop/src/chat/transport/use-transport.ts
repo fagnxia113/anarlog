@@ -9,9 +9,24 @@ import type { ResolvedChatContext } from "./index";
 import { useLanguageModel } from "~/ai/hooks";
 import type { ContextRef } from "~/chat/context/entities";
 import { hydrateSessionContext } from "~/chat/context/session-context-hydrator";
-import { loadHuman, loadOrganization } from "~/contacts/queries";
 import { useToolRegistry } from "~/contexts/tool";
 import { useConfigValue } from "~/shared/config";
+
+async function loadHuman(_id: string): Promise<{
+  name: string;
+  email: string;
+  jobTitle: string;
+  organizationId: string | null;
+  memo: string;
+} | null> {
+  return null;
+}
+
+async function loadOrganization(
+  _id: string | null,
+): Promise<{ name: string } | null> {
+  return null;
+}
 
 export const MEETING_CONTEXT_TOOL_GUIDANCE = `
 Context and local meeting tool guidance:

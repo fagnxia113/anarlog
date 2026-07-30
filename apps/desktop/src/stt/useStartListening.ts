@@ -24,7 +24,6 @@ import {
   normalizeAudioRetention,
 } from "~/services/audio-retention";
 import { getEnhancerService } from "~/services/enhancer";
-import { flushCanonicalSessionEditorChanges } from "~/session-sharing/editor-activity";
 import {
   catalogLocalSessionAudio,
   markSessionAudioTranscriptionComplete,
@@ -620,17 +619,6 @@ function useCaptureLifecycle(sessionId: string) {
           return;
         }
         if (!(await finishCaptureSyncDeferral())) {
-          return;
-        }
-
-        try {
-          await flushCanonicalSessionEditorChanges(sessionId);
-        } catch (error) {
-          console.error(
-            "[listener] failed to flush session notes before completing capture",
-            error,
-          );
-          await requestRecovery();
           return;
         }
 

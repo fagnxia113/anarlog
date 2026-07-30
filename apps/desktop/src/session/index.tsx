@@ -30,10 +30,6 @@ import {
 import { shouldShowSessionTopAudioPlayer } from "./top-audio-player";
 
 import * as AudioPlayer from "~/audio-player";
-import {
-  isCanonicalSessionImportLocked,
-  subscribeCanonicalSessionImportLocks,
-} from "~/session-sharing/editor-activity";
 import { useSession } from "~/session/queries";
 import { type Tab, useTabs } from "~/store/zustand/tabs";
 import { useListener } from "~/stt/contexts";
@@ -49,14 +45,6 @@ export function TabContentNote({
   standaloneWindow?: boolean;
   tab: Extract<Tab, { type: "sessions" }>;
 }) {
-  const importLocked = React.useSyncExternalStore(
-    subscribeCanonicalSessionImportLocks,
-    () => isCanonicalSessionImportLocked(tab.id),
-    () => isCanonicalSessionImportLocked(tab.id),
-  );
-
-  if (importLocked) return <SessionContentLoading />;
-
   return (
     <UnlockedTabContentNote tab={tab} standaloneWindow={standaloneWindow} />
   );

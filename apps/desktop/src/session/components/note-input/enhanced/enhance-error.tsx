@@ -6,9 +6,16 @@ import { Button } from "@hypr/ui/components/ui/button";
 
 import { useAITask } from "~/ai/contexts";
 import { useLanguageModel } from "~/ai/hooks";
-import { useAuth } from "~/auth";
 import { useEnhancedNote } from "~/session/queries";
 import { createTaskId } from "~/store/zustand/ai-task/task-configs";
+
+const useAuth = () => ({
+  session: {
+    access_token: "",
+    user: { id: "local-user", email: "local@local" },
+  },
+  signIn: async () => {},
+});
 
 export function EnhanceError({
   sessionId,

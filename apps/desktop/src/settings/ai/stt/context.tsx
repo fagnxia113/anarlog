@@ -13,8 +13,15 @@ import {
 } from "@hypr/plugin-local-stt";
 import { sonnerToast } from "@hypr/ui/components/ui/toast";
 
-import { useBillingAccess } from "~/auth/billing-context";
 import { useToastAction } from "~/store/zustand/toast-action";
+
+function useBillingAccess() {
+  return {
+    isPaid: true as const,
+    isPro: true as const,
+    upgradeToPro: () => {},
+  };
+}
 
 type SttSettingsContextType = {
   accordionValue: string;

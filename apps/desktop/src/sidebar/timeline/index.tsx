@@ -44,11 +44,7 @@ import {
   type TimelineSessionsTable,
 } from "./utils";
 
-import { useAuth } from "~/auth";
-import { useIgnoredEvents } from "~/calendar/ignored-events";
-import { useTimelineTables } from "~/calendar/queries";
 import { useDeleteSession } from "~/session/hooks/useDeleteSession";
-import { useDurableSharedNotes } from "~/shared-notes/cache";
 import { useConfigValue } from "~/shared/config";
 import { scrollElementByWheel } from "~/shared/dom/scroll-wheel";
 import { useMountEffect } from "~/shared/hooks/useMountEffect";
@@ -56,6 +52,42 @@ import { useNativeContextMenu } from "~/shared/hooks/useNativeContextMenu";
 import { useTabs } from "~/store/zustand/tabs";
 import { useTimelineSelection } from "~/store/zustand/timeline-selection";
 import { useListener } from "~/stt/contexts";
+
+const LOCAL_AUTH = { session: { user: { id: "local-user" } } };
+
+function useAuth() {
+  return LOCAL_AUTH;
+}
+
+function useIgnoredEvents() {
+  return {
+    isIgnored: (
+      _trackingId: string | null | undefined,
+      _recurrenceSeriesId: string | null | undefined,
+    ): boolean => false,
+    ignoreEvent: (_trackingId: string) => {},
+    unignoreEvent: (_trackingId: string) => {},
+    ignoreSeries: (_seriesId: string) => {},
+    unignoreSeries: (_seriesId: string) => {},
+  };
+}
+
+function useTimelineTables(): {
+  timelineEventsTable: TimelineEventsTable;
+  timelineSessionsTable: TimelineSessionsTable;
+} {
+  return { timelineEventsTable: null, timelineSessionsTable: null };
+}
+
+function useDurableSharedNotes(_userId: string | undefined) {
+  return [] as Array<{
+    manageAccess: boolean;
+    sessionId: string;
+    shareId: string;
+    title: string | null;
+    publishedAt: string;
+  }>;
+}
 
 export const TimelineView = memo(function TimelineView({
   showOpenCalendarButton = true,

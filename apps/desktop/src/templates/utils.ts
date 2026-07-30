@@ -9,7 +9,6 @@ import {
   type UserTemplate,
 } from "./queries";
 
-import { useHumans } from "~/contacts/queries";
 import { useOwnerUserId } from "~/shared/owner-user";
 import { useWebResources } from "~/shared/ui/resource-list";
 import { type Tab, useTabs } from "~/store/zustand/tabs";
@@ -80,7 +79,8 @@ export function resolveTemplateTabSelection({
 
 export function useTemplateCreatorName() {
   const ownerUserId = useOwnerUserId();
-  const name = useHumans().find((human) => human.id === ownerUserId)?.name;
+  const humans: { id: string; name: string | null }[] = [];
+  const name = humans.find((human) => human.id === ownerUserId)?.name;
 
   return name?.trim() || "user";
 }
