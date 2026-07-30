@@ -55,13 +55,7 @@ fn get_context(key: &str) -> NotificationContext {
     }
 }
 
-fn show_inner(notification: &hypr_notification_interface::Notification) {
-    #[cfg(all(feature = "legacy", target_os = "macos"))]
-    hypr_notification_macos::show(notification);
-
-    #[cfg(all(feature = "legacy", target_os = "linux"))]
-    hypr_notification_linux::show(notification);
-}
+fn show_inner(_notification: &hypr_notification_interface::Notification) {}
 
 pub fn show(notification: &hypr_notification_interface::Notification) {
     let resolved_notification = resolve_default_icon(notification);
@@ -96,144 +90,46 @@ pub fn show(notification: &hypr_notification_interface::Notification) {
     show_inner(&resolved_notification);
 }
 
-pub fn clear() {
-    #[cfg(all(feature = "legacy", target_os = "macos"))]
-    hypr_notification_macos::dismiss_all();
-
-    #[cfg(all(feature = "legacy", target_os = "linux"))]
-    hypr_notification_linux::dismiss_all();
-}
+pub fn clear() {}
 
 pub fn setup_dismiss_handler<F>(f: F)
 where
     F: Fn(NotificationContext) + Send + Sync + 'static,
 {
-    let f = std::sync::Arc::new(f);
-
-    #[cfg(all(feature = "legacy", target_os = "macos"))]
-    {
-        let f = f.clone();
-        hypr_notification_macos::setup_dismiss_handler(move |key, _tag| {
-            f(get_context(&key));
-        });
-    }
-
-    #[cfg(all(feature = "legacy", target_os = "linux"))]
-    {
-        let f = f.clone();
-        hypr_notification_linux::setup_notification_dismiss_handler(move |key| {
-            f(get_context(&key));
-        });
-    }
-
-    let _ = f;
+    let _ = std::sync::Arc::new(f);
 }
 
 pub fn setup_collapsed_confirm_handler<F>(f: F)
 where
     F: Fn(NotificationContext) + Send + Sync + 'static,
 {
-    let f = std::sync::Arc::new(f);
-
-    #[cfg(all(feature = "legacy", target_os = "macos"))]
-    {
-        let f = f.clone();
-        hypr_notification_macos::setup_collapsed_confirm_handler(move |key, _tag| {
-            f(get_context(&key));
-        });
-    }
-
-    #[cfg(all(feature = "legacy", target_os = "linux"))]
-    {
-        let f = f.clone();
-        hypr_notification_linux::setup_notification_confirm_handler(move |key| {
-            f(get_context(&key));
-        });
-    }
-
-    let _ = f;
+    let _ = std::sync::Arc::new(f);
 }
 
 pub fn setup_expanded_accept_handler<F>(f: F)
 where
     F: Fn(NotificationContext) + Send + Sync + 'static,
 {
-    let f = std::sync::Arc::new(f);
-
-    #[cfg(all(feature = "legacy", target_os = "macos"))]
-    {
-        let f = f.clone();
-        hypr_notification_macos::setup_expanded_accept_handler(move |key, _tag| {
-            f(get_context(&key));
-        });
-    }
-
-    #[cfg(all(feature = "legacy", target_os = "linux"))]
-    {
-        let f = f.clone();
-        hypr_notification_linux::setup_notification_accept_handler(move |key| {
-            f(get_context(&key));
-        });
-    }
-
-    let _ = f;
+    let _ = std::sync::Arc::new(f);
 }
 
 pub fn setup_collapsed_timeout_handler<F>(f: F)
 where
     F: Fn(NotificationContext) + Send + Sync + 'static,
 {
-    let f = std::sync::Arc::new(f);
-
-    #[cfg(all(feature = "legacy", target_os = "macos"))]
-    {
-        let f = f.clone();
-        hypr_notification_macos::setup_collapsed_timeout_handler(move |key, _tag| {
-            f(get_context(&key));
-        });
-    }
-
-    #[cfg(all(feature = "legacy", target_os = "linux"))]
-    {
-        let f = f.clone();
-        hypr_notification_linux::setup_notification_timeout_handler(move |key| {
-            f(get_context(&key));
-        });
-    }
-
-    let _ = f;
+    let _ = std::sync::Arc::new(f);
 }
 
 pub fn setup_option_selected_handler<F>(f: F)
 where
     F: Fn(NotificationContext, i32) + Send + Sync + 'static,
 {
-    let f = std::sync::Arc::new(f);
-
-    #[cfg(all(feature = "legacy", target_os = "macos"))]
-    {
-        let f = f.clone();
-        hypr_notification_macos::setup_option_selected_handler(move |key, tag| {
-            f(get_context(&key), tag);
-        });
-    }
-
-    let _ = f;
+    let _ = std::sync::Arc::new(f);
 }
 
 pub fn setup_footer_action_handler<F>(f: F)
 where
     F: Fn(NotificationContext) + Send + Sync + 'static,
 {
-    let f = std::sync::Arc::new(f);
-
-    #[cfg(all(feature = "legacy", target_os = "macos"))]
-    {
-        let f = f.clone();
-        hypr_notification_macos::setup_footer_action_handler(move |key, _tag| {
-            f(get_context(&key));
-        });
-    }
-
-    let _ = f;
+    let _ = std::sync::Arc::new(f);
 }
