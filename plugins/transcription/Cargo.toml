@@ -24,7 +24,6 @@ hypr-transcription-core = { workspace = true, features = ["specta", "tauri-event
 owhisper-client = { workspace = true }
 owhisper-interface = { workspace = true }
 
-tauri-plugin-hooks = { workspace = true }
 tauri-plugin-local-stt = { workspace = true }
 tauri-plugin-settings = { workspace = true }
 tauri-plugin-tray = { workspace = true }

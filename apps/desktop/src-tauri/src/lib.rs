@@ -15,11 +15,7 @@ use store::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::Emitter;
-use tauri_plugin_permissions::{Permission, PermissionsPluginExt};
 use tauri_plugin_windows::{AppWindow, WindowsPluginExt};
-
-#[cfg(any(feature = "dev", feature = "devtools"))]
-const STAGING_BUNDLE_ID: &str = "com.hyprnote.staging";
 
 const APP_EXIT_REQUESTED_EVENT: &str = "app-exit-requested";
 static EXIT_FLUSH_COMPLETE: AtomicBool = AtomicBool::new(false);
@@ -39,12 +35,6 @@ fn start_exit_hard_fallback() {
 }
 
 fn should_force_quit() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        return hypr_intercept::should_force_quit();
-    }
-
-    #[cfg(not(target_os = "macos"))]
     false
 }
 
@@ -57,9 +47,7 @@ fn create_audio_provider(_bundle_id: &str) -> std::sync::Arc<dyn hypr_audio_actu
             .and_then(|v| v.parse().ok())
             .unwrap_or(0);
 
-        let mock_audio_allowed = cfg!(feature = "dev") || bundle_id == STAGING_BUNDLE_ID;
-
-        if mock_audio_allowed && selection > 0 {
+        if cfg!(feature = "dev") && selection > 0 {
             return std::sync::Arc::new(hypr_audio_mock::MockAudio::new(selection));
         }
     }
@@ -77,43 +65,6 @@ pub async fn main() {
             None => (None, None),
         };
 
-    let sentry_client = {
-        let dsn = option_env!("SENTRY_DSN");
-
-        if let Some(dsn) = dsn {
-            let release =
-                option_env!("APP_VERSION").map(|v| format!("hyprnote-desktop@{}", v).into());
-
-            let client = sentry::init((
-                dsn,
-                sentry::ClientOptions {
-                    release,
-                    traces_sample_rate: 1.0,
-                    auto_session_tracking: false,
-                    ..Default::default()
-                },
-            ));
-
-            sentry::configure_scope(|scope| {
-                scope.set_tag("service.namespace", "hyprnote");
-                scope.set_tag("service.name", "desktop");
-                scope.set_tag("enduser.pseudo.id", hypr_host::fingerprint());
-                scope.set_user(Some(sentry::User {
-                    id: Some(hypr_host::fingerprint()),
-                    ..Default::default()
-                }));
-            });
-
-            Some(client)
-        } else {
-            None
-        }
-    };
-
-    let _guard = sentry_client
-        .as_ref()
-        .map(|client| tauri_plugin_sentry::minidump::init(client));
-
     let audio: std::sync::Arc<dyn hypr_audio_actual::AudioProvider> =
         create_audio_provider(&context.config().identifier);
 
@@ -130,14 +81,6 @@ pub async fn main() {
         .manage(audio)
         .manage(db.clone());
 
-    // https://docs.crabnebula.dev/plugins/tauri-e2e-tests/#macos-support
-    #[cfg(all(target_os = "macos", feature = "automation"))]
-    {
-        builder = builder.plugin(tauri_plugin_automation::init());
-    }
-
-    // https://v2.tauri.app/plugin/deep-linking/#desktop
-    // should always be the first plugin
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             app.windows().show(AppWindow::Main).unwrap();
@@ -145,69 +88,44 @@ pub async fn main() {
     }
 
     builder = builder
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_opener2::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_tracing::init())
-        .plugin(tauri_plugin_analytics::init())
-        .plugin(tauri_plugin_attachment_sync::init())
-        .plugin(tauri_plugin_agent::init())
         .plugin(tauri_plugin_db::init_with_cloudsync(
             db.clone(),
             cloudsync_config,
-        ))
-        .plugin(tauri_plugin_bedrock::init());
-
-    #[cfg(target_os = "macos")]
-    {
-        builder = builder.plugin(tauri_plugin_importer::init());
-    }
+        ));
 
     builder = builder
-        .plugin(tauri_plugin_calendar::init())
-        .plugin(tauri_plugin_todo::init())
-        .plugin(tauri_plugin_auth::init())
-        .plugin(tauri_plugin_hooks::init())
         .plugin(tauri_plugin_icon::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_sidecar2::init())
-        .plugin(tauri_plugin_permissions::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_deeplink2::init())
-        .plugin(tauri_plugin_fs_sync::init())
         .plugin(tauri_plugin_fs2::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_path2::init())
         .plugin(tauri_plugin_export::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_mcp::init())
-        .plugin(tauri_plugin_messenger::init())
-        .plugin(tauri_plugin_misc::init())
         .plugin(tauri_plugin_template::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_detect::init())
-        .plugin(tauri_plugin_dock::init())
+        .plugin(tauri_plugin_misc::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_notify::init())
-        .plugin(tauri_plugin_overlay::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_store2::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_updater2::init())
         .plugin(tauri_plugin_tray::init())
         .plugin(tauri_plugin_settings::init())
-        .plugin(tauri_plugin_sfx::init())
-        .plugin(tauri_plugin_shortcut::init())
-        .plugin(tauri_plugin_dictation::init())
         .plugin(tauri_plugin_windows::init())
-        .plugin(tauri_plugin_js::init())
-        .plugin(tauri_plugin_flag::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_transcription::init())
         .plugin(tauri_plugin_tantivy::init())
         .plugin(tauri_plugin_audio_priority::init())
         .plugin(tauri_plugin_local_llm::init())
+        .plugin(tauri_plugin_sidecar2::init())
         .plugin(tauri_plugin_local_stt::init(
             tauri_plugin_local_stt::InitOptions {
                 parent_supervisor: root_supervisor_ctx
@@ -220,19 +138,9 @@ pub async fn main() {
             Some(vec!["--background"]),
         ));
 
-    if let Some(client) = sentry_client.as_ref() {
-        builder = builder.plugin(tauri_plugin_sentry::init_with_no_injection(client));
-    }
-
-    #[cfg(any(debug_assertions, feature = "devtools"))]
-    {
-        builder = builder.plugin(tauri_plugin_relay::init());
-    }
-
     #[cfg(all(not(debug_assertions), not(feature = "devtools")))]
     {
-        let plugin = tauri_plugin_prevent_default::init();
-        builder = builder.plugin(plugin);
+        builder = builder.plugin(tauri_plugin_prevent_default::init());
     }
 
     let specta_builder = make_specta_builder::<tauri::Wry>();
@@ -256,17 +164,12 @@ pub async fn main() {
 
             {
                 use tauri_plugin_tray::TrayPluginExt;
-                use tauri_plugin_windows::WindowsPluginExt;
 
-                let appearance_settings =
-                    appearance::load_app_appearance_settings::<tauri::Wry, _>(&app_handle);
+                let show_tray_icon =
+                    appearance::load_app_appearance_settings::<tauri::Wry, _>(&app_handle)
+                        .show_tray_icon;
 
-                app_handle
-                    .windows()
-                    .set_show_app_in_dock(appearance_settings.show_app_in_dock)
-                    .unwrap();
-
-                if appearance_settings.show_tray_icon {
+                if show_tray_icon {
                     app_handle.tray().create_tray_menu().unwrap();
                 }
                 app_handle.tray().create_app_menu().unwrap();
@@ -318,25 +221,12 @@ pub async fn main() {
         None => {}
         Some(false) => app.set_onboarding_needed(false).unwrap(),
         Some(true) => {
-            use tauri_plugin_auth::AuthPluginExt;
             use tauri_plugin_settings::SettingsPluginExt;
             use tauri_plugin_store2::Store2PluginExt;
 
-            let _ = app.clear_auth();
             let _ = app.settings().reset();
             let _ = app.store2().reset();
             let _ = app.set_onboarding_needed(true);
-
-            let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let permissions = app_handle.permissions();
-                let _ = permissions.reset(Permission::Microphone).await;
-                let _ = permissions.reset(Permission::SystemAudio).await;
-                let _ = permissions.reset(Permission::ScreenRecording).await;
-                let _ = permissions.reset(Permission::Accessibility).await;
-                let _ = permissions.reset(Permission::Calendar).await;
-                let _ = permissions.reset(Permission::Reminders).await;
-            });
         }
     }
 
@@ -345,15 +235,8 @@ pub async fn main() {
         AppWindow::Main.show(&app_handle).unwrap();
     }
 
-    #[cfg(target_os = "macos")]
-    hypr_intercept::setup_force_quit_handler();
-
     #[allow(unused_variables)]
     app.run(move |app, event| match event {
-        #[cfg(target_os = "macos")]
-        tauri::RunEvent::Reopen { .. } => {
-            AppWindow::Main.show(app).unwrap();
-        }
         tauri::RunEvent::ExitRequested { api, .. } => {
             if let Some(ref ctx) = root_supervisor_ctx_for_run {
                 ctx.mark_exiting();
@@ -397,24 +280,13 @@ pub async fn main() {
 }
 
 fn startup_failure_message(error: &impl std::fmt::Display) -> String {
-    format!("Anarlog failed to start: {error}")
+    format!("zhnote failed to start: {error}")
 }
 
 fn exit_after_startup_failure(error: &impl std::fmt::Display) -> ! {
     let message = startup_failure_message(error);
     eprintln!("{message}");
     tracing::error!(error = %error, "desktop startup failed");
-    sentry::capture_message(&message, sentry::Level::Error);
-
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("/usr/bin/osascript")
-            .args([
-                "-e",
-                "display alert \"Anarlog could not start\" message \"Your existing data was left unchanged. Please restart the app. If the problem continues, contact support.\" as critical buttons {\"OK\"} default button \"OK\"",
-            ])
-            .spawn();
-    }
 
     std::process::exit(1);
 }
@@ -482,7 +354,7 @@ mod test {
 
         assert_eq!(
             message,
-            "Anarlog failed to start: legacy import did not pass parity verification"
+            "zhnote failed to start: legacy import did not pass parity verification"
         );
     }
 

@@ -6,11 +6,11 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-const DEV_BUNDLE_ID: &str = "com.hyprnote.dev";
+const DEV_BUNDLE_ID: &str = "com.zhnote.dev";
 #[cfg(target_os = "macos")]
-const MANAGED_CLI_DIR: &str = ".anarlog-cli";
-const STABLE_BUNDLE_ID: &str = "com.hyprnote.stable";
-const STAGING_BUNDLE_ID: &str = "com.hyprnote.staging";
+const MANAGED_CLI_DIR: &str = ".zhnote-cli";
+const STABLE_BUNDLE_ID: &str = "com.zhnote.stable";
+const STAGING_BUNDLE_ID: &str = "com.zhnote.staging";
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, specta::Type)]
@@ -36,7 +36,7 @@ pub struct EmbeddedCliStatus {
 pub fn check<R: tauri::Runtime, T: tauri::Manager<R>>(manager: &T) -> EmbeddedCliStatus {
     let command_name = command_name_from_identifier(manager.config().identifier.as_ref());
     let Some(install_path) = install_path_for_command(command_name) else {
-        return unavailable_status(command_name, "Anarlog could not find your home directory.");
+        return unavailable_status(command_name, "zhnote could not find your home directory.");
     };
 
     #[cfg(not(target_os = "macos"))]
@@ -59,7 +59,7 @@ pub fn check<R: tauri::Runtime, T: tauri::Manager<R>>(manager: &T) -> EmbeddedCl
                 command_name: command_name.to_string(),
                 install_path: install_path.display().to_string(),
                 state: EmbeddedCliState::ResourceMissing,
-                details: Some("The CLI is not included in this build of Anarlog.".to_string()),
+                details: Some("The CLI is not included in this build of zhnote.".to_string()),
             };
         };
         let app_version = manager.package_info().version.to_string();
@@ -86,7 +86,7 @@ pub fn install<R: tauri::Runtime, T: tauri::Manager<R>>(
             }
             EmbeddedCliState::Conflict => {
                 return Err(format!(
-                    "Another file already exists at {}. Move it before installing the Anarlog CLI.",
+                    "Another file already exists at {}. Move it before installing the zhnote CLI.",
                     status.install_path
                 ));
             }
@@ -120,10 +120,10 @@ fn unavailable_status(command_name: &str, details: &str) -> EmbeddedCliStatus {
 
 fn command_name_from_identifier(identifier: &str) -> &'static str {
     match identifier {
-        STABLE_BUNDLE_ID => "anarlog",
-        STAGING_BUNDLE_ID => "anarlog-staging",
-        DEV_BUNDLE_ID => "anarlog-dev",
-        _ => "anarlog-dev",
+        STABLE_BUNDLE_ID => "zhnote",
+        STAGING_BUNDLE_ID => "zhnote-staging",
+        DEV_BUNDLE_ID => "zhnote-dev",
+        _ => "zhnote-dev",
     }
 }
 
