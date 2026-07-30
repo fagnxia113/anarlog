@@ -6,15 +6,11 @@ import {
   BellIcon,
   BookOpenIcon,
   BookText,
-  CalendarIcon,
   Code2Icon,
   CogIcon,
-  RefreshCwIcon,
   LockIcon,
   SparklesIcon,
   type LucideIcon,
-  UserIcon,
-  UsersIcon,
 } from "lucide-react";
 import { useCallback } from "react";
 
@@ -38,7 +34,6 @@ type SettingsNavGroup = { label: string; items: SettingsNavItem[] };
 export function SettingsNav() {
   const { t } = useLingui();
   const currentTab = useTabs((state) => state.currentTab);
-  const openNew = useTabs((state) => state.openNew);
   const updateSettingsTabState = useTabs(
     (state) => state.updateSettingsTabState,
   );
@@ -65,38 +60,13 @@ export function SettingsNav() {
     });
   }, [openTemplatesTab]);
 
-  const handleOpenCalendar = useCallback(() => {
-    openNew({ type: "calendar" });
-  }, [openNew]);
-
-  const handleOpenContacts = useCallback(() => {
-    openNew({ type: "contacts", state: { selected: null } });
-  }, [openNew]);
-
   const groups: SettingsNavGroup[] = [
     {
       label: t`General`,
       items: [
         { id: "app", label: t`App`, icon: CogIcon },
-        { id: "account", label: t`Account`, icon: UserIcon },
-        { id: "sync", label: t`Sync`, icon: RefreshCwIcon },
         { id: "notifications", label: t`Notifications`, icon: BellIcon },
         { id: "developers", label: t`Developers`, icon: Code2Icon },
-      ],
-    },
-    {
-      label: t`Context`,
-      items: [
-        {
-          action: "open-calendar",
-          label: t`Calendar`,
-          icon: CalendarIcon,
-        },
-        {
-          action: "open-contacts",
-          label: t`Contacts`,
-          icon: UsersIcon,
-        },
       ],
     },
     {
@@ -146,10 +116,6 @@ export function SettingsNav() {
                       if (!isSettingsItem) {
                         if (item.action === "open-templates") {
                           handleOpenTemplates();
-                        } else if (item.action === "open-calendar") {
-                          handleOpenCalendar();
-                        } else {
-                          handleOpenContacts();
                         }
                         return;
                       }

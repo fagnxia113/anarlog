@@ -43,6 +43,8 @@ mod tests {
 
     # Format Requirements
 
+    - The title MUST follow the format: "{meeting topic} {date}". {date} is the current date shown above, in YYYY-MM-DD format. Examples: "Project Review 2026-07-30", "周会 2026-07-30", "客户访谈 2026-07-30".
+    - {meeting topic} is a short phrase (2-6 words) describing the subject of the meeting.
     - Only output the title as plaintext, nothing else. No characters like *"'([{}]):.
     - Never ask questions or request more information.
     - If the note is empty or has no meaningful content, output exactly: <EMPTY>

@@ -2,10 +2,7 @@ import { type ReactNode } from "react";
 
 import { cn } from "@hypr/utils";
 
-import { CalendarNav } from "./calendar";
-import { ContactsNav } from "./contacts";
 import { SettingsNav } from "./settings";
-import { SharedNotesNav } from "./shared-notes";
 import { TemplatesNav } from "./templates";
 import { TimelineView } from "./timeline";
 
@@ -18,17 +15,13 @@ export function LeftSidebar({
 }: {
   timelineHeader?: ReactNode;
   showIgnoredTimelineEvents?: boolean;
-  onShowIgnoredTimelineEventsChange?: (showIgnored: boolean) => void;
+  onShowIgnoredTimelineEventsChange?: (show: boolean) => void;
 } = {}) {
   const currentTab = useTabs((state) => state.currentTab);
 
   const isSettingsMode = currentTab?.type === "settings";
-  const isCalendarMode = currentTab?.type === "calendar";
-  const isContactsMode = currentTab?.type === "contacts";
   const isTemplatesMode = currentTab?.type === "templates";
-  const isSpecialMode =
-    isSettingsMode || isCalendarMode || isContactsMode || isTemplatesMode;
-  const isTimelineSidebarLayout = !isSpecialMode;
+  const isTimelineSidebarLayout = !isSettingsMode && !isTemplatesMode;
 
   return (
     <div
@@ -41,29 +34,28 @@ export function LeftSidebar({
       <div className="flex flex-1 flex-col gap-1 overflow-hidden">
         {isTimelineSidebarLayout ? timelineHeader : null}
         <div className="relative min-h-0 flex-1 overflow-hidden">
-          {isSettingsMode ? (
-            <SettingsNav />
-          ) : isCalendarMode ? (
-            <CalendarNav />
-          ) : isContactsMode ? (
-            <ContactsNav />
-          ) : isTemplatesMode ? (
-            <TemplatesNav />
-          ) : (
-            <div className="flex h-full min-h-0 flex-col">
-              <SharedNotesNav />
-              <div className="relative min-h-0 flex-1">
-                <TimelineView
-                  showIgnoredEvents={showIgnoredTimelineEvents}
-                  onShowIgnoredEventsChange={onShowIgnoredTimelineEventsChange}
-                  topChromeInset={isTimelineSidebarLayout && !timelineHeader}
-                  topChipsOverlapHeader={
-                    isTimelineSidebarLayout && !!timelineHeader
-                  }
-                />
+          {isSettingsMode
+            ? (
+              <SettingsNav />
+            )
+            : isTemplatesMode
+            ? (
+              <TemplatesNav />
+            )
+            : (
+              <div className="flex h-full min-h-0 flex-col">
+                <div className="relative min-h-0 flex-1">
+                  <TimelineView
+                    showIgnoredEvents={showIgnoredTimelineEvents}
+                    onShowIgnoredEventsChange={onShowIgnoredTimelineEventsChange}
+                    topChromeInset={isTimelineSidebarLayout && !timelineHeader}
+                    topChipsOverlapHeader={
+                      isTimelineSidebarLayout && !!timelineHeader
+                    }
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            )}
         </div>
       </div>
     </div>

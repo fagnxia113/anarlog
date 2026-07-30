@@ -97,12 +97,11 @@ export const TimelineView = memo(function TimelineView({
     timelineSessionsTable,
     timezone,
   });
-  const openNew = useTabs((state) => state.openNew);
 
-  const showOpenCalendarChip =
-    showOpenCalendarButton && isScrolledToTop && hasMoreFutureItems;
-  const reserveOpenCalendarChipSpace =
-    showOpenCalendarButton && hasMoreFutureItems;
+  const showOpenCalendarChip = false;
+  const reserveOpenCalendarChipSpace = false;
+  void showOpenCalendarButton;
+  void isScrolledToTop;
 
   const hasToday = useMemo(
     () => buckets.some((bucket) => bucket.label === "Today"),
@@ -354,10 +353,6 @@ export const TimelineView = memo(function TimelineView({
     setUncontrolledShowIgnored(nextShowIgnored);
   }, [onShowIgnoredEventsChange, showIgnored]);
 
-  const handleOpenCalendar = useCallback(() => {
-    openNew({ type: "calendar" });
-  }, [openNew]);
-
   const handleDeleteSelected = useCallback(() => {
     const sessionIds = selectedIds
       .filter((key) => key.startsWith("session-"))
@@ -592,7 +587,7 @@ export const TimelineView = memo(function TimelineView({
               <TimelineTopChip
                 ariaLabel={t`Open calendar`}
                 icon={<CalendarDaysIcon size={12} />}
-                onClick={handleOpenCalendar}
+                onClick={() => {}}
               >
                 <Trans>Open calendar</Trans>
               </TimelineTopChip>
