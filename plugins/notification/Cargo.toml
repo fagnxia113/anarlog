@@ -16,7 +16,6 @@ specta-typescript = { workspace = true }
 [dependencies]
 hypr-detect = { workspace = true }
 hypr-host = { workspace = true }
-hypr-intercept = { workspace = true }
 hypr-notification = { workspace = true, features = ["legacy"] }
 
 tauri-plugin-dialog = { workspace = true }

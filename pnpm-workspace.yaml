@@ -2,8 +2,6 @@ packages:
   - apps/*
   - packages/*
   - plugins/*
-  - examples/plugins/*
-  - e2e/*
 
 publicHoistPattern:
   - "!bun-types"
