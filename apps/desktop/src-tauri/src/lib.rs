@@ -251,7 +251,13 @@ fn to_wav(runtime_dir: &Path, ffmpeg_dir: &Path, audio_path: &str) -> Result<(Pa
     let ffmpeg = ffmpeg_dir.join(FFMPEG_EXECUTABLE);
     if !ffmpeg.is_file() { return Err("安装包中未找到音频转换组件，请重新安装知记".to_string()); }
     let output = runtime_dir.join(format!("zhiji-{}.wav", Uuid::new_v4()));
-    let result = Command::new(ffmpeg).args(["-y", "-i", audio_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", output.to_string_lossy().as_ref()]).output().map_err(app_error)?;
+    let output_arg = output.to_string_lossy().into_owned();
+    let result = Command::new(ffmpeg)
+        .args([
+            "-y", "-i", audio_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", &output_arg,
+        ])
+        .output()
+        .map_err(app_error)?;
     if !result.status.success() { return Err(format!("无法读取录音：{}", String::from_utf8_lossy(&result.stderr).trim())); }
     Ok((output, true))
 }
