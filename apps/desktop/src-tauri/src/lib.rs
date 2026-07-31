@@ -10,8 +10,14 @@ use uuid::Uuid;
 
 const SENSEVOICE_MODEL_NAME: &str = "sensevoice-small-q8.gguf";
 const FSMN_VAD_MODEL_NAME: &str = "fsmn-vad.gguf";
-const SENSEVOICE_MODEL_URL: &str = "https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf";
-const FSMN_VAD_MODEL_URL: &str = "https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf";
+const SENSEVOICE_MODEL_URLS: &[&str] = &[
+    "https://modelscope.cn/models/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/master/sensevoice-small-q8.gguf",
+    "https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf",
+];
+const FSMN_VAD_MODEL_URLS: &[&str] = &[
+    "https://modelscope.cn/models/FunAudioLLM/fsmn-vad-GGUF/resolve/master/fsmn-vad.gguf",
+    "https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf",
+];
 const SENSEVOICE_EXECUTABLE: &str = "llama-funasr-sensevoice.exe";
 const FFMPEG_EXECUTABLE: &str = "ffmpeg.exe";
 const PYTHON_EMBED_URL: &str = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip";
@@ -220,13 +226,33 @@ fn response_error(response: reqwest::blocking::Response, source: &str) -> Result
 fn clean_json(content: &str) -> &str { content.trim().trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim() }
 
 fn download_file(url: &str, destination: &Path) -> Result<(), String> {
-    let response = reqwest::blocking::Client::new().get(url).send().map_err(app_error)?;
-    let mut body = response_error(response, "模型下载服务")?;
     let temporary = destination.with_file_name(format!("{}.part", destination.file_name().and_then(|name| name.to_str()).unwrap_or("model")));
-    let mut output = fs::File::create(&temporary).map_err(app_error)?;
-    io::copy(&mut body, &mut output).map_err(app_error)?;
-    output.sync_all().map_err(app_error)?;
-    fs::rename(temporary, destination).map_err(app_error)
+    let result = (|| {
+        let response = reqwest::blocking::Client::new().get(url).send().map_err(app_error)?;
+        let mut body = response_error(response, "模型下载服务")?;
+        let mut output = fs::File::create(&temporary).map_err(app_error)?;
+        io::copy(&mut body, &mut output).map_err(app_error)?;
+        output.sync_all().map_err(app_error)?;
+        fs::rename(&temporary, destination).map_err(app_error)
+    })();
+    if result.is_err() { let _ = fs::remove_file(&temporary); }
+    result
+}
+
+fn download_model(sources: &[&str], destination: &Path) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for source in sources {
+        match download_file(source, destination) {
+            Ok(()) => {
+                let size = fs::metadata(destination).map_err(app_error)?.len();
+                if size > 1_000_000 { return Ok(()); }
+                let _ = fs::remove_file(destination);
+                errors.push(format!("{source} 返回的文件过小"));
+            }
+            Err(error) => errors.push(format!("{source}：{error}")),
+        }
+    }
+    Err(format!("无法下载本地语音模型。已依次尝试 ModelScope 和 Hugging Face：{}", errors.join("；")))
 }
 
 fn clean_local_transcript(raw: &str) -> String {
@@ -422,8 +448,8 @@ async fn download_local_asr_model(state: State<'_, AppState>) -> Result<LocalAsr
     tauri::async_runtime::spawn_blocking(move || {
         let model_path = models_dir.join(SENSEVOICE_MODEL_NAME);
         let vad_path = models_dir.join(FSMN_VAD_MODEL_NAME);
-        if !model_path.is_file() { download_file(SENSEVOICE_MODEL_URL, &model_path)?; }
-        if !vad_path.is_file() { download_file(FSMN_VAD_MODEL_URL, &vad_path)?; }
+        if !model_path.is_file() { download_model(SENSEVOICE_MODEL_URLS, &model_path)?; }
+        if !vad_path.is_file() { download_model(FSMN_VAD_MODEL_URLS, &vad_path)?; }
         Ok::<(), String>(())
     }).await.map_err(|error| format!("模型下载任务中断：{error}"))??;
     Ok(local_asr_status(&state))
