@@ -36,6 +36,7 @@ type Meeting = {
   transcript: string;
   minutes: string;
   decisions: string;
+  speakerSegments: string;
   audioPath: string | null;
   updatedAt: string;
 };
@@ -43,13 +44,16 @@ type Task = { id: string; title: string; sourceType: string | null; sourceId: st
 type Workspace = { notebooks: Notebook[]; notes: Note[]; meetings: Meeting[]; tasks: Task[] };
 type AiSettings = { baseUrl: string; analysisModel: string; isConfigured: boolean };
 type LocalAsrStatus = { installed: boolean; runtimeAvailable: boolean; modelSizeMb: number };
+type SpeakerEngineStatus = { installed: boolean; modelsReady: boolean };
+type SpeakerSegment = { speaker: string; startMs: number; endMs: number; text: string };
 type AnalysisResult = { meeting: Meeting; tasks: Task[] };
 type View = "home" | "meetings" | "notes" | "tasks" | "settings";
-type Processing = "downloading" | "transcribing" | "analyzing" | null;
+type Processing = "downloading" | "transcribing" | "analyzing" | "installingSpeaker" | "speakerTranscribing" | null;
 
 const emptyWorkspace: Workspace = { notebooks: [], notes: [], meetings: [], tasks: [] };
 const defaultAiSettings: AiSettings = { baseUrl: "https://api.openai.com/v1", analysisModel: "gpt-4o-mini", isConfigured: false };
 const defaultAsrStatus: LocalAsrStatus = { installed: false, runtimeAvailable: false, modelSizeMb: 0 };
+const defaultSpeakerStatus: SpeakerEngineStatus = { installed: false, modelsReady: false };
 
 function dateTime(value: string) {
   return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
@@ -67,6 +71,7 @@ export function App() {
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const [aiSettings, setAiSettings] = useState<AiSettings>(defaultAiSettings);
   const [asrStatus, setAsrStatus] = useState<LocalAsrStatus>(defaultAsrStatus);
+  const [speakerStatus, setSpeakerStatus] = useState<SpeakerEngineStatus>(defaultSpeakerStatus);
   const [apiKey, setApiKey] = useState("");
   const [view, setView] = useState<View>("home");
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
@@ -94,11 +99,12 @@ export function App() {
 
   useEffect(() => {
     let active = true;
-    void Promise.all([reload(), invoke<AiSettings>("get_ai_settings"), invoke<LocalAsrStatus>("get_local_asr_status")])
-      .then(([, settings, asr]) => {
+    void Promise.all([reload(), invoke<AiSettings>("get_ai_settings"), invoke<LocalAsrStatus>("get_local_asr_status"), invoke<SpeakerEngineStatus>("get_speaker_engine_status")])
+      .then(([, settings, asr, speaker]) => {
         if (!active) return;
         setAiSettings(settings);
         setAsrStatus(asr);
+        setSpeakerStatus(speaker);
       })
       .catch((error: unknown) => active && notify(`无法打开本地资料库：${String(error)}`))
       .finally(() => active && setLoading(false));
@@ -258,6 +264,35 @@ export function App() {
     }
   };
 
+  const installSpeakerEngine = async () => {
+    try {
+      setProcessing("installingSpeaker");
+      const status = await invoke<SpeakerEngineStatus>("install_speaker_engine_command");
+      setSpeakerStatus(status);
+      notify("本地说话人分离引擎已就绪。首次区分发言人时会下载会议模型。");
+    } catch (error) {
+      notify(`安装说话人分离引擎失败：${String(error)}`);
+    } finally {
+      setProcessing(null);
+    }
+  };
+
+  const transcribeWithSpeakers = async () => {
+    if (!selectedMeeting) return;
+    try {
+      setProcessing("speakerTranscribing");
+      const meeting = await invoke<Meeting>("transcribe_meeting_with_speakers", { meetingId: selectedMeeting.id });
+      setSelectedMeeting(meeting);
+      setSpeakerStatus((status) => ({ ...status, modelsReady: true }));
+      await reload();
+      notify("已完成本地转写与说话人区分，可继续生成智能纪要。");
+    } catch (error) {
+      notify(`说话人分离失败：${String(error)}`);
+    } finally {
+      setProcessing(null);
+    }
+  };
+
   const saveAiSettings = async () => {
     try {
       const saved = await invoke<AiSettings>("save_ai_settings", { settings: { ...aiSettings, apiKey: apiKey.trim() || null } });
@@ -307,7 +342,7 @@ export function App() {
         </header>
         {message && <div className="toast">{message}</div>}
         {view === "home" && <Home workspace={workspace} onMeeting={() => void createMeeting()} onNote={() => void createNote()} onOpenMeeting={(meeting) => { setSelectedMeeting(meeting); setView("meetings"); }} onOpenNote={(note) => { setSelectedNote(note); setView("notes"); }} />}
-        {view === "meetings" && <Meetings meetings={filteredMeetings} meeting={selectedMeeting} onSelect={setSelectedMeeting} onCreate={() => void createMeeting()} onChange={setSelectedMeeting} onSave={() => void saveMeeting()} onTask={() => void addTask("meeting", selectedMeeting?.id ?? null)} recording={recording} recordingSeconds={recordingSeconds} onRecord={() => void startRecording()} onStop={stopRecording} asrStatus={asrStatus} aiConfigured={aiSettings.isConfigured} processing={processing} onTranscribe={() => void transcribeMeeting()} onAnalyze={() => void analyzeMeeting()} onOpenSettings={() => setView("settings")} />}
+        {view === "meetings" && <Meetings meetings={filteredMeetings} meeting={selectedMeeting} onSelect={setSelectedMeeting} onCreate={() => void createMeeting()} onChange={setSelectedMeeting} onSave={() => void saveMeeting()} onTask={() => void addTask("meeting", selectedMeeting?.id ?? null)} recording={recording} recordingSeconds={recordingSeconds} onRecord={() => void startRecording()} onStop={stopRecording} asrStatus={asrStatus} speakerStatus={speakerStatus} aiConfigured={aiSettings.isConfigured} processing={processing} onTranscribe={() => void transcribeMeeting()} onTranscribeWithSpeakers={() => void transcribeWithSpeakers()} onAnalyze={() => void analyzeMeeting()} onInstallSpeaker={() => void installSpeakerEngine()} onOpenSettings={() => setView("settings")} />}
         {view === "notes" && <Notes notes={filteredNotes} notebooks={workspace.notebooks} note={selectedNote} onSelect={setSelectedNote} onCreate={() => void createNote()} onChange={setSelectedNote} onSave={() => void saveNote()} />}
         {view === "tasks" && <Tasks tasks={workspace.tasks} onAdd={() => void addTask()} onToggle={(task) => void toggleTask(task)} />}
         {view === "settings" && <SettingsView workspace={workspace} aiSettings={aiSettings} asrStatus={asrStatus} apiKey={apiKey} processing={processing} onAiChange={setAiSettings} onApiKeyChange={setApiKey} onSaveAi={() => void saveAiSettings()} onClearAiKey={() => void clearAiKey()} onDownloadAsr={() => void downloadLocalAsr()} onCreateNotebook={async () => { const name = window.prompt("笔记本名称"); if (!name?.trim()) return; await invoke("create_notebook", { name: name.trim(), color: "#4f7cff" }); await reload(); notify("笔记本已创建"); }} onBackup={async () => { const path = await invoke<string>("backup_workspace"); notify(`备份已创建：${path}`); }} />}
@@ -334,12 +369,20 @@ function Stat({ icon, label, value }: { icon: ReactNode; label: string; value: n
   return <div className="stat-card"><span>{icon}</span><div><strong>{value}</strong><small>{label}</small></div></div>;
 }
 
-function Meetings({ meetings, meeting, onSelect, onCreate, onChange, onSave, onTask, recording, recordingSeconds, onRecord, onStop, asrStatus, aiConfigured, processing, onTranscribe, onAnalyze, onOpenSettings }: { meetings: Meeting[]; meeting: Meeting | null; onSelect: (meeting: Meeting) => void; onCreate: () => void; onChange: (meeting: Meeting) => void; onSave: () => void; onTask: () => void; recording: boolean; recordingSeconds: number; onRecord: () => void; onStop: () => void; asrStatus: LocalAsrStatus; aiConfigured: boolean; processing: Processing; onTranscribe: () => void; onAnalyze: () => void; onOpenSettings: () => void }) {
-  return <div className="split-layout"><section className="list-pane"><div className="pane-heading"><div><h2>全部会议</h2><small>{meetings.length} 场会议</small></div><button className="round-add" onClick={onCreate}><Plus size={18} /></button></div>{meetings.map((item) => <button className={`meeting-item ${meeting?.id === item.id ? "selected" : ""}`} onClick={() => onSelect(item)} key={item.id}><span className="meeting-date">{new Date(item.startedAt).getDate()}</span><span><strong>{item.title}</strong><small>{dateTime(item.startedAt)} · {item.status}</small></span>{item.audioPath && <Mic size={14} />}</button>)}{meetings.length === 0 && <Empty label="未找到会议。" />}</section><section className="editor-pane">{meeting ? <><div className="editor-top"><div><input className="title-input" value={meeting.title} onChange={(event) => onChange({ ...meeting, title: event.target.value })} /><small>{dateTime(meeting.startedAt)} · {meeting.status}</small></div><div className="editor-buttons"><button className="secondary-button" onClick={onTask}><Plus size={15} />待办</button><button className="primary-button" onClick={onSave}><Check size={15} />保存</button></div></div><div className="recording-bar">{recording ? <><span className="recording-dot" />正在录音 <strong>{duration(recordingSeconds)}</strong><button className="danger-button" onClick={onStop}><Square size={13} fill="currentColor" />结束录音</button></> : <><Mic size={17} /><span>{meeting.audioPath ? `录音 ${duration(meeting.durationSeconds)} 已保存` : "在会议开始时录音，音频只保存到本地"}</span><button className="record-button" onClick={onRecord}><Mic size={14} />开始录音</button></>}</div><AiWorkflow meeting={meeting} asrStatus={asrStatus} aiConfigured={aiConfigured} processing={processing} onTranscribe={onTranscribe} onAnalyze={onAnalyze} onOpenSettings={onOpenSettings} /><div className="meeting-editor"><EditorField label="会议纪要" hint="智能分析会生成主题、关键讨论、结论、风险与下一步" value={meeting.minutes} onChange={(minutes) => onChange({ ...meeting, minutes })} placeholder="可手动记录，或点击智能纪要生成…" /><EditorField label="决策与共识" hint="只保留明确决定；不确定项会标记待确认" value={meeting.decisions} onChange={(decisions) => onChange({ ...meeting, decisions })} placeholder="例如：下周三前交付第一版原型" /><EditorField label="原始记录 / 转写稿" hint="本地语音转写会写入这里；也可以粘贴文字记录" value={meeting.transcript} onChange={(transcript) => onChange({ ...meeting, transcript })} placeholder="在这里保留完整上下文…" /></div></> : <Empty label="选择一场会议，或创建新的会议。" />}</section></div>;
+function Meetings({ meetings, meeting, onSelect, onCreate, onChange, onSave, onTask, recording, recordingSeconds, onRecord, onStop, asrStatus, speakerStatus, aiConfigured, processing, onTranscribe, onTranscribeWithSpeakers, onAnalyze, onInstallSpeaker, onOpenSettings }: { meetings: Meeting[]; meeting: Meeting | null; onSelect: (meeting: Meeting) => void; onCreate: () => void; onChange: (meeting: Meeting) => void; onSave: () => void; onTask: () => void; recording: boolean; recordingSeconds: number; onRecord: () => void; onStop: () => void; asrStatus: LocalAsrStatus; speakerStatus: SpeakerEngineStatus; aiConfigured: boolean; processing: Processing; onTranscribe: () => void; onTranscribeWithSpeakers: () => void; onAnalyze: () => void; onInstallSpeaker: () => void; onOpenSettings: () => void }) {
+  return <div className="split-layout"><section className="list-pane"><div className="pane-heading"><div><h2>全部会议</h2><small>{meetings.length} 场会议</small></div><button className="round-add" onClick={onCreate}><Plus size={18} /></button></div>{meetings.map((item) => <button className={`meeting-item ${meeting?.id === item.id ? "selected" : ""}`} onClick={() => onSelect(item)} key={item.id}><span className="meeting-date">{new Date(item.startedAt).getDate()}</span><span><strong>{item.title}</strong><small>{dateTime(item.startedAt)} · {item.status}</small></span>{item.audioPath && <Mic size={14} />}</button>)}{meetings.length === 0 && <Empty label="未找到会议。" />}</section><section className="editor-pane">{meeting ? <><div className="editor-top"><div><input className="title-input" value={meeting.title} onChange={(event) => onChange({ ...meeting, title: event.target.value })} /><small>{dateTime(meeting.startedAt)} · {meeting.status}</small></div><div className="editor-buttons"><button className="secondary-button" onClick={onTask}><Plus size={15} />待办</button><button className="primary-button" onClick={onSave}><Check size={15} />保存</button></div></div><div className="recording-bar">{recording ? <><span className="recording-dot" />正在录音 <strong>{duration(recordingSeconds)}</strong><button className="danger-button" onClick={onStop}><Square size={13} fill="currentColor" />结束录音</button></> : <><Mic size={17} /><span>{meeting.audioPath ? `录音 ${duration(meeting.durationSeconds)} 已保存` : "在会议开始时录音，音频只保存到本地"}</span><button className="record-button" onClick={onRecord}><Mic size={14} />开始录音</button></>}</div><AiWorkflow meeting={meeting} asrStatus={asrStatus} speakerStatus={speakerStatus} aiConfigured={aiConfigured} processing={processing} onTranscribe={onTranscribe} onTranscribeWithSpeakers={onTranscribeWithSpeakers} onAnalyze={onAnalyze} onInstallSpeaker={onInstallSpeaker} onOpenSettings={onOpenSettings} /><SpeakerTimeline segments={meeting.speakerSegments} /><div className="meeting-editor"><EditorField label="会议纪要" hint="智能分析会生成主题、关键讨论、结论、风险与下一步" value={meeting.minutes} onChange={(minutes) => onChange({ ...meeting, minutes })} placeholder="可手动记录，或点击智能纪要生成…" /><EditorField label="决策与共识" hint="只保留明确决定；不确定项会标记待确认" value={meeting.decisions} onChange={(decisions) => onChange({ ...meeting, decisions })} placeholder="例如：下周三前交付第一版原型" /><EditorField label="原始记录 / 转写稿" hint="本地语音转写会写入这里；也可以粘贴文字记录" value={meeting.transcript} onChange={(transcript) => onChange({ ...meeting, transcript })} placeholder="在这里保留完整上下文…" /></div></> : <Empty label="选择一场会议，或创建新的会议。" />}</section></div>;
 }
 
-function AiWorkflow({ meeting, asrStatus, aiConfigured, processing, onTranscribe, onAnalyze, onOpenSettings }: { meeting: Meeting; asrStatus: LocalAsrStatus; aiConfigured: boolean; processing: Processing; onTranscribe: () => void; onAnalyze: () => void; onOpenSettings: () => void }) {
-  return <div className="ai-workflow"><div className="ai-flow-copy"><Sparkles size={18} /><span><strong>本地转写 · 智能纪要</strong><small>{asrStatus.installed ? `SenseVoice 本地模型已就绪（${asrStatus.modelSizeMb} MB），录音不会上传。` : "请先在设置中下载本地中文语音模型。"}</small></span></div><div className="ai-flow-actions">{!asrStatus.installed ? <button className="secondary-button" onClick={onOpenSettings}>下载本地模型</button> : <button className="secondary-button" disabled={!meeting.audioPath || processing !== null} onClick={onTranscribe}>{processing === "transcribing" ? <LoaderCircle className="spin" size={15} /> : <Mic size={15} />}{processing === "transcribing" ? "正在本地转写" : "本地语音转写"}</button>}{!aiConfigured ? <button className="primary-button" disabled={!meeting.transcript.trim()} onClick={onOpenSettings}><Sparkles size={15} />配置智能纪要</button> : <button className="primary-button" disabled={!meeting.transcript.trim() || processing !== null} onClick={onAnalyze}>{processing === "analyzing" ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}{processing === "analyzing" ? "正在分析" : "生成智能纪要"}</button>}</div></div>;
+function AiWorkflow({ meeting, asrStatus, speakerStatus, aiConfigured, processing, onTranscribe, onTranscribeWithSpeakers, onAnalyze, onInstallSpeaker, onOpenSettings }: { meeting: Meeting; asrStatus: LocalAsrStatus; speakerStatus: SpeakerEngineStatus; aiConfigured: boolean; processing: Processing; onTranscribe: () => void; onTranscribeWithSpeakers: () => void; onAnalyze: () => void; onInstallSpeaker: () => void; onOpenSettings: () => void }) {
+  const speakerReady = speakerStatus.installed;
+  return <div className="ai-workflow"><div className="ai-flow-copy"><Sparkles size={18} /><span><strong>本地转写 · 发言人区分 · 智能纪要</strong><small>{asrStatus.installed ? `基础转写模型已就绪；${speakerReady ? "说话人分离引擎已就绪。" : "可按需安装本地说话人分离引擎。"}` : "请先在设置中下载本地中文语音模型。"}</small></span></div><div className="ai-flow-actions">{!asrStatus.installed ? <button className="secondary-button" onClick={onOpenSettings}>下载本地模型</button> : <button className="secondary-button" disabled={!meeting.audioPath || processing !== null} onClick={onTranscribe}>{processing === "transcribing" ? <LoaderCircle className="spin" size={15} /> : <Mic size={15} />}{processing === "transcribing" ? "正在本地转写" : "本地语音转写"}</button>}{speakerReady ? <button className="secondary-button" disabled={!meeting.audioPath || processing !== null} onClick={onTranscribeWithSpeakers}>{processing === "speakerTranscribing" ? <LoaderCircle className="spin" size={15} /> : <UsersRound size={15} />}{processing === "speakerTranscribing" ? "正在区分发言人" : speakerStatus.modelsReady ? "区分发言人转写" : "下载会议模型并区分"}</button> : <button className="secondary-button" disabled={processing !== null} onClick={onInstallSpeaker}>{processing === "installingSpeaker" ? <LoaderCircle className="spin" size={15} /> : <UsersRound size={15} />}{processing === "installingSpeaker" ? "正在安装引擎" : "安装说话人引擎"}</button>}{!aiConfigured ? <button className="primary-button" disabled={!meeting.transcript.trim()} onClick={onOpenSettings}><Sparkles size={15} />配置智能纪要</button> : <button className="primary-button" disabled={!meeting.transcript.trim() || processing !== null} onClick={onAnalyze}>{processing === "analyzing" ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}{processing === "analyzing" ? "正在分析" : "生成智能纪要"}</button>}</div></div>;
+}
+
+function SpeakerTimeline({ segments }: { segments: string }) {
+  let items: SpeakerSegment[] = [];
+  try { items = JSON.parse(segments) as SpeakerSegment[]; } catch { return null; }
+  if (!items.length) return null;
+  return <section className="speaker-timeline"><div><h3>说话人时间线</h3><small>发言人编号由本地声纹聚类生成，可用于追溯“谁说了什么”。</small></div>{items.map((item, index) => <div className="speaker-row" key={`${item.startMs}-${index}`}><span>{item.speaker}</span><small>{duration(Math.floor(item.startMs / 1000))}–{duration(Math.floor(item.endMs / 1000))}</small><p>{item.text}</p></div>)}</section>;
 }
 
 function Notes({ notes, notebooks, note, onSelect, onCreate, onChange, onSave }: { notes: Note[]; notebooks: Notebook[]; note: Note | null; onSelect: (note: Note) => void; onCreate: () => void; onChange: (note: Note) => void; onSave: () => void }) {

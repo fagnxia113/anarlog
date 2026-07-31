@@ -1,4 +1,4 @@
-use std::{error::Error, fs, io, path::{Path, PathBuf}, process::Command, sync::Mutex};
+use std::{error::Error, fs, io::{self, Read, Write}, path::{Path, PathBuf}, process::Command, sync::Mutex};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::Local;
@@ -14,6 +14,8 @@ const SENSEVOICE_MODEL_URL: &str = "https://huggingface.co/FunAudioLLM/SenseVoic
 const FSMN_VAD_MODEL_URL: &str = "https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf";
 const SENSEVOICE_EXECUTABLE: &str = "llama-funasr-sensevoice.exe";
 const FFMPEG_EXECUTABLE: &str = "ffmpeg.exe";
+const PYTHON_EMBED_URL: &str = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip";
+const GET_PIP_URL: &str = "https://bootstrap.pypa.io/get-pip.py";
 
 struct AppState {
     connection: Mutex<Connection>,
@@ -22,6 +24,8 @@ struct AppState {
     recordings_dir: PathBuf,
     runtime_dir: PathBuf,
     ffmpeg_dir: PathBuf,
+    speaker_engine_dir: PathBuf,
+    speaker_models_dir: PathBuf,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -44,6 +48,7 @@ struct Meeting {
     transcript: String,
     minutes: String,
     decisions: String,
+    speaker_segments: String,
     audio_path: Option<String>,
     updated_at: String,
 }
@@ -80,6 +85,18 @@ struct AnalysisResult { meeting: Meeting, tasks: Vec<Task> }
 #[serde(rename_all = "camelCase")]
 struct LocalAsrStatus { installed: bool, runtime_available: bool, model_size_mb: u64 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SpeakerEngineStatus { installed: bool, models_ready: bool }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SpeakerTranscript { transcript: String, segments: Vec<SpeakerSegment> }
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SpeakerSegment { speaker: String, start_ms: i64, end_ms: i64, text: String }
+
 fn now() -> String { Local::now().to_rfc3339() }
 fn id() -> String { Uuid::new_v4().to_string() }
 fn app_error(error: impl std::fmt::Display) -> String { error.to_string() }
@@ -95,8 +112,11 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
     let data_dir = app.path().app_data_dir()?;
     let recordings_dir = data_dir.join("recordings");
     let models_dir = data_dir.join("models");
+    let speaker_engine_dir = data_dir.join("speaker-engine");
+    let speaker_models_dir = models_dir.join("funasr-meeting");
     fs::create_dir_all(&recordings_dir)?;
     fs::create_dir_all(&models_dir)?;
+    fs::create_dir_all(&speaker_engine_dir)?;
     let resource_dir = app.path().resource_dir()?;
     let runtime_dir = resource_folder(&resource_dir, "funasr-runtime", SENSEVOICE_EXECUTABLE);
     let ffmpeg_dir = resource_folder(&resource_dir, "ffmpeg", FFMPEG_EXECUTABLE);
@@ -115,7 +135,8 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
         CREATE TABLE IF NOT EXISTS meetings (
           id TEXT PRIMARY KEY, notebook_id TEXT, title TEXT NOT NULL, started_at TEXT NOT NULL,
           duration_seconds INTEGER NOT NULL, status TEXT NOT NULL, transcript TEXT NOT NULL,
-          minutes TEXT NOT NULL, decisions TEXT NOT NULL, audio_path TEXT, updated_at TEXT NOT NULL
+          minutes TEXT NOT NULL, decisions TEXT NOT NULL, speaker_segments TEXT NOT NULL DEFAULT '[]',
+          audio_path TEXT, updated_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS tasks (
           id TEXT PRIMARY KEY, title TEXT NOT NULL, source_type TEXT, source_id TEXT,
@@ -127,6 +148,7 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
         CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(completed);
         ",
     )?;
+    ensure_column(&connection, "meetings", "speaker_segments", "TEXT NOT NULL DEFAULT '[]'")?;
     let count: i64 = connection.query_row("SELECT COUNT(*) FROM notebooks", [], |row| row.get(0))?;
     if count == 0 {
         let notebook_id = id();
@@ -136,7 +158,14 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
             params![id(), notebook_id, "欢迎使用知记", "从这里开始记录。你可以创建会议、保存录音、整理纪要，并把行动项统一放进待办。", "开始使用", now()],
         )?;
     }
-    Ok(AppState { connection: Mutex::new(connection), database_path, models_dir, recordings_dir, runtime_dir, ffmpeg_dir })
+    Ok(AppState { connection: Mutex::new(connection), database_path, models_dir, recordings_dir, runtime_dir, ffmpeg_dir, speaker_engine_dir, speaker_models_dir })
+}
+
+fn ensure_column(connection: &Connection, table: &str, column: &str, definition: &str) -> Result<(), Box<dyn Error>> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let exists = statement.query_map([], |row| row.get::<_, String>(1))?.collect::<Result<Vec<_>, _>>()?.iter().any(|name| name == column);
+    if !exists { connection.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"), [])?; }
+    Ok(())
 }
 
 fn setting(connection: &Connection, key: &str, default: &str) -> Result<String, String> {
@@ -175,9 +204,9 @@ fn configured_ai(state: &AppState) -> Result<(AiSettings, String), String> {
 
 fn meeting_by_id(connection: &Connection, meeting_id: &str) -> Result<Meeting, String> {
     connection.query_row(
-        "SELECT id, notebook_id, title, started_at, duration_seconds, status, transcript, minutes, decisions, audio_path, updated_at FROM meetings WHERE id = ?1",
+        "SELECT id, notebook_id, title, started_at, duration_seconds, status, transcript, minutes, decisions, speaker_segments, audio_path, updated_at FROM meetings WHERE id = ?1",
         params![meeting_id],
-        |row| Ok(Meeting { id: row.get(0)?, notebook_id: row.get(1)?, title: row.get(2)?, started_at: row.get(3)?, duration_seconds: row.get(4)?, status: row.get(5)?, transcript: row.get(6)?, minutes: row.get(7)?, decisions: row.get(8)?, audio_path: row.get(9)?, updated_at: row.get(10)? }),
+        |row| Ok(Meeting { id: row.get(0)?, notebook_id: row.get(1)?, title: row.get(2)?, started_at: row.get(3)?, duration_seconds: row.get(4)?, status: row.get(5)?, transcript: row.get(6)?, minutes: row.get(7)?, decisions: row.get(8)?, speaker_segments: row.get(9)?, audio_path: row.get(10)?, updated_at: row.get(11)? }),
     ).map_err(|error| match error { rusqlite::Error::QueryReturnedNoRows => "找不到该会议".to_string(), other => app_error(other) })
 }
 
@@ -246,6 +275,91 @@ fn run_local_asr(runtime_dir: PathBuf, ffmpeg_dir: PathBuf, models_dir: PathBuf,
     Ok(transcript)
 }
 
+fn speaker_python(engine_dir: &Path) -> PathBuf { engine_dir.join("python").join("python.exe") }
+fn speaker_script(engine_dir: &Path) -> PathBuf { engine_dir.join("diarize.py") }
+fn speaker_marker(engine_dir: &Path) -> PathBuf { engine_dir.join(".installed") }
+fn speaker_models_marker(models_dir: &Path) -> PathBuf { models_dir.join(".ready") }
+
+fn speaker_engine_status(state: &AppState) -> SpeakerEngineStatus {
+    SpeakerEngineStatus {
+        installed: speaker_python(&state.speaker_engine_dir).is_file() && speaker_marker(&state.speaker_engine_dir).is_file(),
+        models_ready: speaker_models_marker(&state.speaker_models_dir).is_file(),
+    }
+}
+
+fn extract_zip(archive: &Path, destination: &Path) -> Result<(), String> {
+    let file = fs::File::open(archive).map_err(app_error)?;
+    let mut zip = zip::ZipArchive::new(file).map_err(app_error)?;
+    for index in 0..zip.len() {
+        let mut entry = zip.by_index(index).map_err(app_error)?;
+        let Some(name) = entry.enclosed_name().map(PathBuf::from) else { return Err("Python 运行时压缩包包含不安全路径".to_string()); };
+        let output = destination.join(name);
+        if entry.is_dir() { fs::create_dir_all(output).map_err(app_error)?; continue; }
+        if let Some(parent) = output.parent() { fs::create_dir_all(parent).map_err(app_error)?; }
+        let mut file = fs::File::create(output).map_err(app_error)?;
+        io::copy(&mut entry, &mut file).map_err(app_error)?;
+        file.flush().map_err(app_error)?;
+    }
+    Ok(())
+}
+
+fn run_python(python: &Path, arguments: &[&str], stage: &str) -> Result<(), String> {
+    let output = Command::new(python).args(arguments).output().map_err(app_error)?;
+    if output.status.success() { return Ok(()); }
+    let error = String::from_utf8_lossy(&output.stderr);
+    Err(format!("{stage}失败：{}", error.trim()))
+}
+
+fn install_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf) -> Result<(), String> {
+    let python = speaker_python(&engine_dir);
+    if speaker_marker(&engine_dir).is_file() && python.is_file() { return Ok(()); }
+    fs::create_dir_all(&engine_dir).map_err(app_error)?;
+    fs::create_dir_all(&models_dir).map_err(app_error)?;
+    let archive = engine_dir.join("python-embed.zip");
+    if !python.is_file() {
+        download_file(PYTHON_EMBED_URL, &archive)?;
+        extract_zip(&archive, &engine_dir.join("python"))?;
+        let _ = fs::remove_file(&archive);
+    }
+    if !python.is_file() { return Err("本地 Python 运行时下载不完整，请重试".to_string()); }
+    let pth = engine_dir.join("python").join("python311._pth");
+    let content = fs::read_to_string(&pth).map_err(app_error)?;
+    fs::write(&pth, content.replace("#import site", "import site")).map_err(app_error)?;
+    let get_pip = engine_dir.join("get-pip.py");
+    if !get_pip.is_file() { download_file(GET_PIP_URL, &get_pip)?; }
+    let get_pip_arg = get_pip.to_string_lossy().into_owned();
+    run_python(&python, &[&get_pip_arg, "--disable-pip-version-check"], "准备会议引擎")?;
+    run_python(&python, &["-m", "pip", "install", "--disable-pip-version-check", "--upgrade", "pip"], "更新安装工具")?;
+    run_python(&python, &["-m", "pip", "install", "--disable-pip-version-check", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"], "安装本地计算组件")?;
+    run_python(&python, &["-m", "pip", "install", "--disable-pip-version-check", "funasr", "modelscope", "soundfile"], "安装说话人分离组件")?;
+    fs::write(speaker_script(&engine_dir), include_str!("speaker_engine.py")).map_err(app_error)?;
+    fs::write(speaker_marker(&engine_dir), "ready").map_err(app_error)?;
+    Ok(())
+}
+
+fn run_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, runtime_dir: PathBuf, ffmpeg_dir: PathBuf, audio_path: String) -> Result<SpeakerTranscript, String> {
+    let python = speaker_python(&engine_dir);
+    let script = speaker_script(&engine_dir);
+    if !speaker_marker(&engine_dir).is_file() || !python.is_file() || !script.is_file() { return Err("请先在设置中安装本地说话人分离引擎".to_string()); }
+    let (wav_path, remove_wav) = to_wav(&runtime_dir, &ffmpeg_dir, &audio_path)?;
+    let result_path = engine_dir.join(format!("speaker-result-{}.json", Uuid::new_v4()));
+    let audio_arg = wav_path.to_string_lossy().into_owned();
+    let output_arg = result_path.to_string_lossy().into_owned();
+    let models_arg = models_dir.to_string_lossy().into_owned();
+    let script_arg = script.to_string_lossy().into_owned();
+    let result = run_python(&python, &[&script_arg, "--audio", &audio_arg, "--output", &output_arg, "--model-cache", &models_arg], "本地说话人分离");
+    if remove_wav { let _ = fs::remove_file(&wav_path); }
+    result?;
+    let mut input = fs::File::open(&result_path).map_err(app_error)?;
+    let mut content = String::new();
+    input.read_to_string(&mut content).map_err(app_error)?;
+    let _ = fs::remove_file(&result_path);
+    let transcript: SpeakerTranscript = serde_json::from_str(&content).map_err(|error| format!("本地说话人分离结果无效：{error}"))?;
+    if transcript.transcript.trim().is_empty() || transcript.segments.is_empty() { return Err("本地说话人分离没有返回可用结果".to_string()); }
+    fs::write(speaker_models_marker(&models_dir), "ready").map_err(app_error)?;
+    Ok(transcript)
+}
+
 fn copy_folder(source: &Path, destination: &Path) -> Result<(), String> {
     if !source.exists() { return Ok(()); }
     fs::create_dir_all(destination).map_err(app_error)?;
@@ -269,8 +383,8 @@ fn notes(connection: &Connection) -> Result<Vec<Note>, String> {
 }
 
 fn meetings(connection: &Connection) -> Result<Vec<Meeting>, String> {
-    let mut statement = connection.prepare("SELECT id, notebook_id, title, started_at, duration_seconds, status, transcript, minutes, decisions, audio_path, updated_at FROM meetings ORDER BY started_at DESC").map_err(app_error)?;
-    statement.query_map([], |row| Ok(Meeting { id: row.get(0)?, notebook_id: row.get(1)?, title: row.get(2)?, started_at: row.get(3)?, duration_seconds: row.get(4)?, status: row.get(5)?, transcript: row.get(6)?, minutes: row.get(7)?, decisions: row.get(8)?, audio_path: row.get(9)?, updated_at: row.get(10)? })).map_err(app_error)?.collect::<Result<Vec<_>, _>>().map_err(app_error)
+    let mut statement = connection.prepare("SELECT id, notebook_id, title, started_at, duration_seconds, status, transcript, minutes, decisions, speaker_segments, audio_path, updated_at FROM meetings ORDER BY started_at DESC").map_err(app_error)?;
+    statement.query_map([], |row| Ok(Meeting { id: row.get(0)?, notebook_id: row.get(1)?, title: row.get(2)?, started_at: row.get(3)?, duration_seconds: row.get(4)?, status: row.get(5)?, transcript: row.get(6)?, minutes: row.get(7)?, decisions: row.get(8)?, speaker_segments: row.get(9)?, audio_path: row.get(10)?, updated_at: row.get(11)? })).map_err(app_error)?.collect::<Result<Vec<_>, _>>().map_err(app_error)
 }
 
 fn tasks(connection: &Connection) -> Result<Vec<Task>, String> {
@@ -294,6 +408,9 @@ fn get_ai_settings(state: State<'_, AppState>) -> Result<AiSettings, String> {
 fn get_local_asr_status(state: State<'_, AppState>) -> LocalAsrStatus { local_asr_status(&state) }
 
 #[tauri::command]
+fn get_speaker_engine_status(state: State<'_, AppState>) -> SpeakerEngineStatus { speaker_engine_status(&state) }
+
+#[tauri::command]
 async fn download_local_asr_model(state: State<'_, AppState>) -> Result<LocalAsrStatus, String> {
     let models_dir = state.models_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -304,6 +421,14 @@ async fn download_local_asr_model(state: State<'_, AppState>) -> Result<LocalAsr
         Ok::<(), String>(())
     }).await.map_err(|error| format!("模型下载任务中断：{error}"))??;
     Ok(local_asr_status(&state))
+}
+
+#[tauri::command]
+async fn install_speaker_engine_command(state: State<'_, AppState>) -> Result<SpeakerEngineStatus, String> {
+    let engine_dir = state.speaker_engine_dir.clone();
+    let models_dir = state.speaker_models_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || install_speaker_engine(engine_dir, models_dir)).await.map_err(|error| format!("说话人引擎安装任务中断：{error}"))??;
+    Ok(speaker_engine_status(&state))
 }
 
 #[tauri::command]
@@ -350,16 +475,16 @@ fn save_note(state: State<'_, AppState>, note: Note) -> Result<(), String> {
 #[tauri::command]
 fn create_meeting(state: State<'_, AppState>, notebook_id: Option<String>) -> Result<Meeting, String> {
     let timestamp = now();
-    let meeting = Meeting { id: id(), notebook_id, title: "未命名会议".to_string(), started_at: timestamp.clone(), duration_seconds: 0, status: "草稿".to_string(), transcript: String::new(), minutes: String::new(), decisions: String::new(), audio_path: None, updated_at: timestamp };
+    let meeting = Meeting { id: id(), notebook_id, title: "未命名会议".to_string(), started_at: timestamp.clone(), duration_seconds: 0, status: "草稿".to_string(), transcript: String::new(), minutes: String::new(), decisions: String::new(), speaker_segments: "[]".to_string(), audio_path: None, updated_at: timestamp };
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    connection.execute("INSERT INTO meetings (id, notebook_id, title, started_at, duration_seconds, status, transcript, minutes, decisions, audio_path, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)", params![meeting.id, meeting.notebook_id, meeting.title, meeting.started_at, meeting.duration_seconds, meeting.status, meeting.transcript, meeting.minutes, meeting.decisions, meeting.audio_path, meeting.updated_at]).map_err(app_error)?;
+    connection.execute("INSERT INTO meetings (id, notebook_id, title, started_at, duration_seconds, status, transcript, minutes, decisions, speaker_segments, audio_path, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)", params![meeting.id, meeting.notebook_id, meeting.title, meeting.started_at, meeting.duration_seconds, meeting.status, meeting.transcript, meeting.minutes, meeting.decisions, meeting.speaker_segments, meeting.audio_path, meeting.updated_at]).map_err(app_error)?;
     Ok(meeting)
 }
 
 #[tauri::command]
 fn save_meeting(state: State<'_, AppState>, meeting: Meeting) -> Result<(), String> {
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    connection.execute("UPDATE meetings SET notebook_id = ?2, title = ?3, started_at = ?4, duration_seconds = ?5, status = ?6, transcript = ?7, minutes = ?8, decisions = ?9, audio_path = ?10, updated_at = ?11 WHERE id = ?1", params![meeting.id, meeting.notebook_id, meeting.title, meeting.started_at, meeting.duration_seconds, meeting.status, meeting.transcript, meeting.minutes, meeting.decisions, meeting.audio_path, now()]).map_err(app_error)?;
+    connection.execute("UPDATE meetings SET notebook_id = ?2, title = ?3, started_at = ?4, duration_seconds = ?5, status = ?6, transcript = ?7, minutes = ?8, decisions = ?9, speaker_segments = ?10, audio_path = ?11, updated_at = ?12 WHERE id = ?1", params![meeting.id, meeting.notebook_id, meeting.title, meeting.started_at, meeting.duration_seconds, meeting.status, meeting.transcript, meeting.minutes, meeting.decisions, meeting.speaker_segments, meeting.audio_path, now()]).map_err(app_error)?;
     Ok(())
 }
 
@@ -392,6 +517,21 @@ async fn transcribe_meeting(state: State<'_, AppState>, meeting_id: String) -> R
     let transcript = tauri::async_runtime::spawn_blocking(move || run_local_asr(runtime_dir, ffmpeg_dir, models_dir, audio_path)).await.map_err(|error| format!("本地转写任务中断：{error}"))??;
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
     connection.execute("UPDATE meetings SET transcript = ?2, status = ?3, updated_at = ?4 WHERE id = ?1", params![meeting_id, transcript, "已转写", now()]).map_err(app_error)?;
+    meeting_by_id(&connection, &meeting.id)
+}
+
+#[tauri::command]
+async fn transcribe_meeting_with_speakers(state: State<'_, AppState>, meeting_id: String) -> Result<Meeting, String> {
+    let meeting = { let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?; meeting_by_id(&connection, &meeting_id)? };
+    let audio_path = meeting.audio_path.clone().ok_or_else(|| "请先完成录音，再开始说话人分离".to_string())?;
+    let engine_dir = state.speaker_engine_dir.clone();
+    let models_dir = state.speaker_models_dir.clone();
+    let runtime_dir = state.runtime_dir.clone();
+    let ffmpeg_dir = state.ffmpeg_dir.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || run_speaker_engine(engine_dir, models_dir, runtime_dir, ffmpeg_dir, audio_path)).await.map_err(|error| format!("说话人分离任务中断：{error}"))??;
+    let segments = serde_json::to_string(&result.segments).map_err(app_error)?;
+    let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+    connection.execute("UPDATE meetings SET transcript = ?2, speaker_segments = ?3, status = ?4, updated_at = ?5 WHERE id = ?1", params![meeting_id, result.transcript, segments, "已区分发言人", now()]).map_err(app_error)?;
     meeting_by_id(&connection, &meeting.id)
 }
 
@@ -449,9 +589,11 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| { app.manage(open_state(app.handle())?); Ok(()) })
         .invoke_handler(tauri::generate_handler![
-            load_workspace, get_ai_settings, get_local_asr_status, download_local_asr_model,
+            load_workspace, get_ai_settings, get_local_asr_status, get_speaker_engine_status,
+            download_local_asr_model, install_speaker_engine_command,
             save_ai_settings, clear_ai_api_key, create_notebook, create_note, save_note,
             create_meeting, save_meeting, upsert_task, save_recording, transcribe_meeting,
+            transcribe_meeting_with_speakers,
             analyze_meeting, backup_workspace, delete_entity
         ])
         .run(tauri::generate_context!())
