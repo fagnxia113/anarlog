@@ -1,78 +1,18 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "知记主窗口能力",
   "windows": [
     "*"
   ],
   "permissions": [
     "core:default",
-    "core:window:default",
     "core:window:allow-start-dragging",
-    "core:window:allow-set-fullscreen",
     "core:window:allow-minimize",
     "core:window:allow-maximize",
     "core:window:allow-close",
-    "core:window:allow-show",
-    "core:window:allow-center",
-    "core:window:allow-set-size",
-    "core:window:allow-set-focus",
-    "core:window:allow-set-position",
     "core:window:allow-is-maximized",
     "core:window:allow-toggle-maximize",
-    "audio-priority:default",
-    "db:default",
-    "db:allow-begin-cloudsync-activity",
-    "db:allow-end-cloudsync-activity",
-    "windows:default",
-    "windows:allow-devtools-panel-show",
-    "windows:allow-devtools-panel-hide",
-    "tracing:default",
-    "hypr-tray:default",
-    "deeplink2:default",
-    "store2:default",
-    "process:default",
-    "local-llm:default",
-    "local-stt:default",
-    "dialog:default",
-    "icon:default",
-    "transcription:default",
-    "template:default",
-    "notification:default",
-    "notify:default",
-    "tantivy:default",
-    "clipboard-manager:allow-write-image",
-    "clipboard-manager:allow-write-text",
-    "shell:allow-open",
-    "fs2:default",
-    "fs-sync:default",
-    "os:default",
-    "opener2:default",
-    "detect:default",
-    "misc:default",
-    "settings:default",
-    "path2:default",
-    "export:default",
-    "autostart:default",
-    "store:default",
-    "sidecar2:default",
-    {
-      "identifier": "http:default",
-      "deny": [],
-      "allow": [
-        {
-          "url": "http://localhost:*/**"
-        },
-        {
-          "url": "http://*.*.*.*:*/**"
-        },
-        {
-          "url": "https://**"
-        },
-        {
-          "url": "http://**"
-        }
-      ]
-    }
+    "core:window:allow-set-focus"
   ]
 }

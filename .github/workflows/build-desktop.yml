@@ -32,47 +32,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
-        run: pnpm install
-
-      - name: Build UI package
-        run: pnpm -F @hypr/ui build
+        run: pnpm --filter @zhiji/desktop install --frozen-lockfile
 
       - name: Build frontend
-        run: pnpm -F @hypr/desktop build
-
-      - name: Bundle VC++ Runtime DLLs
-        shell: pwsh
-        run: |
-          $vcrt = "apps/desktop/src-tauri/resources/vcrt"
-          New-Item -ItemType Directory -Force -Path $vcrt | Out-Null
-          $redist = "$env:TEMP\vc_redist.x64.exe"
-          Write-Host "Downloading VC++ Redistributable x64..."
-          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $redist
-          Write-Host "Installing VC++ Redistributable (silent)..."
-          Start-Process -FilePath $redist -ArgumentList "/install","/quiet","/norestart" -Wait
-          $system32 = "$env:SystemRoot\System32"
-          $dlls = @("MSVCP140.dll","MSVCP140_1.dll","MSVCP140_2.dll","VCRUNTIME140.dll","VCRUNTIME140_1.dll")
-          foreach ($dll in $dlls) {
-            $src = Join-Path $system32 $dll
-            if (Test-Path $src) {
-              Copy-Item $src -Destination $vcrt -Force
-              Write-Host "Copied $dll"
-            } else {
-              Write-Host "WARN: $dll not found in System32"
-            }
-          }
-          Get-ChildItem $vcrt | Format-Table Name,Length
+        run: pnpm -F @zhiji/desktop build
 
       - name: Build Tauri app
-        run: pnpm exec tauri build --ci --bundles nsis --no-sign --features devtools
+        run: pnpm exec tauri build --ci --bundles nsis --no-sign
         working-directory: apps/desktop
-        env:
-          POSTHOG_API_KEY: phc_local_smoke
-          VITE_API_URL: https://api.anarlog.so
 
       - name: Upload NSIS installer
         uses: actions/upload-artifact@v4
         with:
-          name: zhnote-windows-nsis
+          name: zhiji-windows-nsis
           path: apps/desktop/src-tauri/target/**/bundle/nsis/*.exe
           if-no-files-found: error
