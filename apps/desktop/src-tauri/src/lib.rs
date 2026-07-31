@@ -174,6 +174,7 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
         ",
     )?;
     ensure_column(&connection, "meetings", "speaker_segments", "TEXT NOT NULL DEFAULT '[]'")?;
+    clean_stored_transcripts(&connection)?;
     let count: i64 = connection.query_row("SELECT COUNT(*) FROM notebooks", [], |row| row.get(0))?;
     if count == 0 {
         let notebook_id = id();
@@ -282,15 +283,46 @@ fn download_model(sources: &[&str], destination: &Path) -> Result<(), String> {
     Err(format!("无法下载本地语音模型。已依次尝试 ModelScope 和 Hugging Face：{}", errors.join("；")))
 }
 
+fn strip_sensevoice_tokens(raw: &str) -> String {
+    let mut cleaned = raw.to_string();
+    while let Some(start) = cleaned.find("<|") {
+        let Some(end) = cleaned[start..].find("|>") else { break; };
+        cleaned.replace_range(start..start + end + 2, "");
+    }
+    cleaned
+}
+
+fn clean_speaker_segments(raw: &str) -> String {
+    let Ok(mut segments) = serde_json::from_str::<Vec<SpeakerSegment>>(raw) else { return raw.to_string(); };
+    for segment in &mut segments { segment.text = strip_sensevoice_tokens(&segment.text).trim().to_string(); }
+    segments.retain(|segment| !segment.text.is_empty());
+    serde_json::to_string(&segments).unwrap_or_else(|_| raw.to_string())
+}
+
+fn clean_stored_transcripts(connection: &Connection) -> Result<(), Box<dyn Error>> {
+    let rows = {
+        let mut statement = connection.prepare("SELECT id, transcript, speaker_segments FROM meetings")?;
+        statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for (meeting_id, transcript, segments) in rows {
+        let cleaned_transcript = strip_sensevoice_tokens(&transcript);
+        let cleaned_segments = clean_speaker_segments(&segments);
+        if cleaned_transcript != transcript || cleaned_segments != segments {
+            connection.execute(
+                "UPDATE meetings SET transcript = ?2, speaker_segments = ?3 WHERE id = ?1",
+                params![meeting_id, cleaned_transcript, cleaned_segments],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn clean_local_transcript(raw: &str) -> String {
     raw.lines().filter_map(|line| {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with("INFO") || trimmed.starts_with("load_") || trimmed.starts_with("usage:") { return None; }
-        let mut cleaned = trimmed.to_string();
-        while let Some(start) = cleaned.find("<|") {
-            let Some(end) = cleaned[start..].find("|>") else { break; };
-            cleaned.replace_range(start..start + end + 2, "");
-        }
+        let mut cleaned = strip_sensevoice_tokens(trimmed);
         if cleaned.starts_with('[') {
             if let Some(end) = cleaned.find(']') { cleaned = cleaned[end + 1..].trim().to_string(); }
         }
@@ -313,6 +345,31 @@ fn to_wav(runtime_dir: &Path, ffmpeg_dir: &Path, audio_path: &str) -> Result<(Pa
         .map_err(app_error)?;
     if !result.status.success() { return Err(format!("无法读取录音：{}", String::from_utf8_lossy(&result.stderr).trim())); }
     Ok((output, true))
+}
+
+fn probe_audio_duration(ffmpeg_dir: &Path, audio_path: &Path) -> i64 {
+    let ffmpeg = ffmpeg_dir.join(FFMPEG_EXECUTABLE);
+    if !ffmpeg.is_file() { return 0; }
+    let mut command = Command::new(ffmpeg);
+    command.arg("-hide_banner").arg("-i").arg(audio_path);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let Ok(output) = command.output() else { return 0; };
+    let details = String::from_utf8_lossy(&output.stderr);
+    let Some(duration) = details.split("Duration: ").nth(1).and_then(|value| value.split(',').next()) else { return 0; };
+    let parts = duration.trim().split(':').collect::<Vec<_>>();
+    if parts.len() != 3 { return 0; }
+    let Ok(hours) = parts[0].parse::<f64>() else { return 0; };
+    let Ok(minutes) = parts[1].parse::<f64>() else { return 0; };
+    let Ok(seconds) = parts[2].parse::<f64>() else { return 0; };
+    (hours * 3600.0 + minutes * 60.0 + seconds).round() as i64
+}
+
+fn remove_managed_recording(recordings_dir: &Path, audio_path: &str) {
+    let path = PathBuf::from(audio_path);
+    let Ok(root) = fs::canonicalize(recordings_dir) else { return; };
+    let Ok(canonical_path) = fs::canonicalize(&path) else { return; };
+    if canonical_path.starts_with(root) { let _ = fs::remove_file(canonical_path); }
 }
 
 fn run_local_asr(runtime_dir: PathBuf, ffmpeg_dir: PathBuf, models_dir: PathBuf, vcrt_dir: PathBuf, audio_path: String) -> Result<String, String> {
@@ -486,7 +543,13 @@ fn run_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, runtime_dir: Pat
     let mut content = String::new();
     input.read_to_string(&mut content).map_err(app_error)?;
     let _ = fs::remove_file(&result_path);
-    let transcript: SpeakerTranscript = serde_json::from_str(&content).map_err(|error| format!("本地说话人分离结果无效：{error}"))?;
+    let mut transcript: SpeakerTranscript = serde_json::from_str(&content).map_err(|error| format!("本地说话人分离结果无效：{error}"))?;
+    for segment in &mut transcript.segments { segment.text = strip_sensevoice_tokens(&segment.text).trim().to_string(); }
+    transcript.segments.retain(|segment| !segment.text.is_empty());
+    transcript.transcript = transcript.segments.iter()
+        .map(|segment| format!("【{}】{}", segment.speaker, segment.text))
+        .collect::<Vec<_>>()
+        .join("\n");
     if transcript.transcript.trim().is_empty() || transcript.segments.is_empty() { return Err("本地说话人分离没有返回可用结果".to_string()); }
     fs::write(speaker_models_marker(&models_dir), "ready").map_err(app_error)?;
     Ok(transcript)
@@ -641,6 +704,40 @@ fn save_recording(state: State<'_, AppState>, meeting_id: String, data_url: Stri
 }
 
 #[tauri::command]
+fn import_meeting_audio(state: State<'_, AppState>, meeting_id: String, audio_path: String) -> Result<Meeting, String> {
+    let source = PathBuf::from(&audio_path);
+    if !source.is_file() { return Err("找不到选择的录音文件".to_string()); }
+    if fs::metadata(&source).map_err(app_error)?.len() == 0 { return Err("选择的录音文件是空文件".to_string()); }
+    let extension = source.extension().and_then(|value| value.to_str()).map(str::to_ascii_lowercase)
+        .ok_or_else(|| "录音文件缺少扩展名".to_string())?;
+    const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "webm", "wma", "mp4"];
+    if !AUDIO_EXTENSIONS.contains(&extension.as_str()) { return Err(format!("暂不支持 .{extension} 格式的录音")); }
+
+    let existing = {
+        let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+        meeting_by_id(&connection, &meeting_id)?
+    };
+    let destination = state.recordings_dir.join(format!("{meeting_id}-import-{}.{}", Local::now().timestamp(), extension));
+    fs::copy(&source, &destination).map_err(|error| format!("导入录音失败：{error}"))?;
+    let duration_seconds = probe_audio_duration(&state.ffmpeg_dir, &destination);
+    let destination_string = destination.to_string_lossy().into_owned();
+    let update_result = (|| {
+        let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+        connection.execute(
+            "UPDATE meetings SET audio_path = ?2, duration_seconds = ?3, status = ?4, updated_at = ?5 WHERE id = ?1",
+            params![meeting_id, destination_string, duration_seconds, "已导入录音", now()],
+        ).map_err(app_error)?;
+        meeting_by_id(&connection, &existing.id)
+    })();
+    if update_result.is_err() { let _ = fs::remove_file(&destination); }
+    let meeting = update_result?;
+    if let Some(old_audio) = existing.audio_path.as_deref() {
+        if old_audio != destination_string { remove_managed_recording(&state.recordings_dir, old_audio); }
+    }
+    Ok(meeting)
+}
+
+#[tauri::command]
 async fn transcribe_meeting(state: State<'_, AppState>, meeting_id: String) -> Result<Meeting, String> {
     let meeting = { let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?; meeting_by_id(&connection, &meeting_id)? };
     let audio_path = meeting.audio_path.clone().ok_or_else(|| "请先完成录音，再开始语音转写".to_string())?;
@@ -720,16 +817,31 @@ fn delete_entity(state: State<'_, AppState>, entity: String, id: String) -> Resu
     Ok(())
 }
 
+#[tauri::command]
+fn delete_meeting(state: State<'_, AppState>, meeting_id: String) -> Result<(), String> {
+    let mut connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+    let meeting = meeting_by_id(&connection, &meeting_id)?;
+    let transaction = connection.transaction().map_err(app_error)?;
+    transaction.execute("DELETE FROM tasks WHERE source_type = 'meeting' AND source_id = ?1", params![meeting_id]).map_err(app_error)?;
+    let deleted = transaction.execute("DELETE FROM meetings WHERE id = ?1", params![meeting_id]).map_err(app_error)?;
+    if deleted == 0 { return Err("找不到要删除的会议".to_string()); }
+    transaction.commit().map_err(app_error)?;
+    drop(connection);
+    if let Some(audio_path) = meeting.audio_path.as_deref() { remove_managed_recording(&state.recordings_dir, audio_path); }
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| { app.manage(open_state(app.handle())?); Ok(()) })
         .invoke_handler(tauri::generate_handler![
             load_workspace, get_ai_settings, get_local_asr_status, get_speaker_engine_status,
             download_local_asr_model, install_speaker_engine_command,
             save_ai_settings, clear_ai_api_key, create_notebook, create_note, save_note,
-            create_meeting, save_meeting, upsert_task, save_recording, transcribe_meeting,
+            create_meeting, save_meeting, upsert_task, save_recording, import_meeting_audio, transcribe_meeting,
             transcribe_meeting_with_speakers,
-            analyze_meeting, backup_workspace, delete_entity
+            analyze_meeting, backup_workspace, delete_entity, delete_meeting
         ])
         .run(tauri::generate_context!())
         .expect("启动知记时发生错误");

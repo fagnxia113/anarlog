@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 
 
 def value(item, *keys):
@@ -9,6 +10,10 @@ def value(item, *keys):
         if candidate not in (None, ""):
             return candidate
     return ""
+
+
+def clean_text(text):
+    return re.sub(r"<\|[^>]*\|>", "", str(text)).strip()
 
 
 def main():
@@ -41,21 +46,27 @@ def main():
     payload = result[0] if isinstance(result, list) else result
     segments = []
     for item in payload.get("sentence_info", []):
-        text = str(value(item, "text", "sentence")).strip()
+        text = clean_text(value(item, "text", "sentence"))
         if not text:
             continue
         speaker = value(item, "spk", "speaker")
-        segments.append({
-            "speaker": f"发言人 {int(speaker) + 1}" if str(speaker).isdigit() else f"发言人 {speaker or 1}",
-            "startMs": int(value(item, "start") or 0),
-            "endMs": int(value(item, "end") or 0),
-            "text": text,
-        })
+        segments.append(
+            {
+                "speaker": f"发言人 {int(speaker) + 1}"
+                if str(speaker).isdigit()
+                else f"发言人 {speaker or 1}",
+                "startMs": int(value(item, "start") or 0),
+                "endMs": int(value(item, "end") or 0),
+                "text": text,
+            }
+        )
     if not segments:
         raise RuntimeError("会议引擎没有返回可用的说话人分段")
     transcript = "\n".join(f"【{item['speaker']}】{item['text']}" for item in segments)
     with open(args.output, "w", encoding="utf-8") as output:
-        json.dump({"transcript": transcript, "segments": segments}, output, ensure_ascii=False)
+        json.dump(
+            {"transcript": transcript, "segments": segments}, output, ensure_ascii=False
+        )
 
 
 if __name__ == "__main__":
