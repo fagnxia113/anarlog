@@ -37,6 +37,32 @@ jobs:
       - name: Build frontend
         run: pnpm -F @zhiji/desktop build
 
+      - name: Bundle local Chinese ASR runtime
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "funasr-runtime.zip"
+          $unpacked = Join-Path $env:RUNNER_TEMP "funasr-runtime"
+          $target = "apps/desktop/src-tauri/resources/funasr-runtime"
+          Invoke-WebRequest -Uri "https://github.com/modelscope/FunASR/releases/download/runtime-llamacpp-v0.1.9/funasr-llamacpp-windows-x64.zip" -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $unpacked -Force
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          $executable = Get-ChildItem -Path $unpacked -Recurse -Filter "llama-funasr-sensevoice.exe" | Select-Object -First 1
+          if ($null -eq $executable) { throw "FunASR runtime executable was not found" }
+          Copy-Item -Path (Join-Path $executable.Directory.FullName "*") -Destination $target -Recurse -Force
+
+      - name: Bundle audio conversion runtime
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "ffmpeg.zip"
+          $unpacked = Join-Path $env:RUNNER_TEMP "ffmpeg"
+          $target = "apps/desktop/src-tauri/resources/ffmpeg"
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $unpacked -Force
+          $executable = Get-ChildItem -Path $unpacked -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          if ($null -eq $executable) { throw "FFmpeg executable was not found" }
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item -Path $executable.FullName -Destination (Join-Path $target "ffmpeg.exe") -Force
+
       - name: Build Tauri app
         run: pnpm exec tauri build --ci --bundles nsis --no-sign
         working-directory: apps/desktop

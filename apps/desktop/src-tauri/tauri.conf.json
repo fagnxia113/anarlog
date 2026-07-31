@@ -30,6 +30,7 @@
     "active": true,
     "createUpdaterArtifacts": false,
     "targets": ["nsis"],
+    "resources": ["resources/funasr-runtime/**", "resources/ffmpeg/**"],
     "externalBin": [],
     "icon": [
       "icons/32x32.png",
