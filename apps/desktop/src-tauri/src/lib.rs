@@ -20,6 +20,7 @@ const FSMN_VAD_MODEL_URLS: &[&str] = &[
 ];
 const SENSEVOICE_EXECUTABLE: &str = "llama-funasr-sensevoice.exe";
 const FFMPEG_EXECUTABLE: &str = "ffmpeg.exe";
+const MODEL_DOWNLOAD_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Zhiji/1.0";
 const PYTHON_EMBED_URL: &str = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip";
 const GET_PIP_URL: &str = "https://bootstrap.pypa.io/get-pip.py";
 
@@ -228,7 +229,15 @@ fn clean_json(content: &str) -> &str { content.trim().trim_start_matches("```jso
 fn download_file(url: &str, destination: &Path) -> Result<(), String> {
     let temporary = destination.with_file_name(format!("{}.part", destination.file_name().and_then(|name| name.to_str()).unwrap_or("model")));
     let result = (|| {
-        let response = reqwest::blocking::Client::new().get(url).send().map_err(app_error)?;
+        let client = reqwest::blocking::Client::builder()
+            .user_agent(MODEL_DOWNLOAD_USER_AGENT)
+            .build()
+            .map_err(app_error)?;
+        let response = client
+            .get(url)
+            .header(reqwest::header::ACCEPT, "application/octet-stream,application/*;q=0.9,*/*;q=0.8")
+            .send()
+            .map_err(app_error)?;
         let mut body = response_error(response, "模型下载服务")?;
         let mut output = fs::File::create(&temporary).map_err(app_error)?;
         io::copy(&mut body, &mut output).map_err(app_error)?;
