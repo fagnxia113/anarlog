@@ -311,7 +311,7 @@ fn to_wav(runtime_dir: &Path, ffmpeg_dir: &Path, audio_path: &str) -> Result<(Pa
     Ok((output, true))
 }
 
-fn run_local_asr(runtime_dir: PathBuf, ffmpeg_dir: PathBuf, models_dir: PathBuf, audio_path: String) -> Result<String, String> {
+fn run_local_asr(runtime_dir: PathBuf, ffmpeg_dir: PathBuf, models_dir: PathBuf, vcrt_dir: PathBuf, audio_path: String) -> Result<String, String> {
     let executable = runtime_dir.join(SENSEVOICE_EXECUTABLE);
     if !executable.is_file() { return Err("本地语音引擎未随安装包找到，请重新安装知记".to_string()); }
     let model = models_dir.join(SENSEVOICE_MODEL_NAME);
@@ -321,7 +321,14 @@ fn run_local_asr(runtime_dir: PathBuf, ffmpeg_dir: PathBuf, models_dir: PathBuf,
     let model_arg = model.to_string_lossy().into_owned();
     let vad_arg = vad.to_string_lossy().into_owned();
     let audio_arg = wav_path.to_string_lossy().into_owned();
-    let result = Command::new(&executable).current_dir(&runtime_dir).arg("-m").arg(model_arg).arg("--vad").arg(vad_arg).arg("-a").arg(audio_arg).output().map_err(app_error);
+    let mut command = Command::new(&executable);
+    command.current_dir(&runtime_dir).arg("-m").arg(model_arg).arg("--vad").arg(vad_arg).arg("-a").arg(audio_arg);
+    let mut paths = vec![vcrt_dir, runtime_dir.clone()];
+    if let Some(current_path) = std::env::var_os("PATH") { paths.extend(std::env::split_paths(&current_path)); }
+    command.env("PATH", std::env::join_paths(paths).map_err(app_error)?);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let result = command.output().map_err(app_error);
     if remove_wav { let _ = fs::remove_file(&wav_path); }
     let output = result?;
     if !output.status.success() { return Err(format!("本地语音引擎运行失败：{}", String::from_utf8_lossy(&output.stderr).trim())); }
@@ -615,7 +622,8 @@ async fn transcribe_meeting(state: State<'_, AppState>, meeting_id: String) -> R
     let runtime_dir = state.runtime_dir.clone();
     let ffmpeg_dir = state.ffmpeg_dir.clone();
     let models_dir = state.models_dir.clone();
-    let transcript = tauri::async_runtime::spawn_blocking(move || run_local_asr(runtime_dir, ffmpeg_dir, models_dir, audio_path)).await.map_err(|error| format!("本地转写任务中断：{error}"))??;
+    let vcrt_dir = state.vcrt_dir.clone();
+    let transcript = tauri::async_runtime::spawn_blocking(move || run_local_asr(runtime_dir, ffmpeg_dir, models_dir, vcrt_dir, audio_path)).await.map_err(|error| format!("本地转写任务中断：{error}"))??;
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
     connection.execute("UPDATE meetings SET transcript = ?2, status = ?3, updated_at = ?4 WHERE id = ?1", params![meeting_id, transcript, "已转写", now()]).map_err(app_error)?;
     meeting_by_id(&connection, &meeting.id)
