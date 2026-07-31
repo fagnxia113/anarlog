@@ -3,6 +3,8 @@
 
 use std::io::Write;
 
+use hyprnote_desktop_lib::startup_log;
+
 fn install_panic_hook() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -55,6 +57,9 @@ fn install_panic_hook() {
 }
 
 fn main() {
+    startup_log("=== zhnote Dev starting ===");
+    startup_log("installing panic hook");
     install_panic_hook();
+    startup_log("panic hook installed, entering lib::main");
     hyprnote_desktop_lib::main()
 }

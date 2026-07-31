@@ -12,10 +12,33 @@ use db::{cloudsync_runtime_config_from_env, open_desktop_db};
 use ext::*;
 use store::*;
 
+use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::Emitter;
 use tauri_plugin_windows::{AppWindow, WindowsPluginExt};
+
+pub fn startup_log(msg: impl AsRef<str>) {
+    let msg = msg.as_ref();
+    eprintln!("[startup] {msg}");
+
+    if let Some(dir) = dirs::data_dir() {
+        let log_dir = dir.join("com.zhnote.dev").join("logs");
+        let _ = std::fs::create_dir_all(&log_dir);
+        let log_path = log_dir.join("startup.log");
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let _ = writeln!(f, "[{timestamp}] {msg}");
+        }
+    }
+}
 
 const APP_EXIT_REQUESTED_EVENT: &str = "app-exit-requested";
 static EXIT_FLUSH_COMPLETE: AtomicBool = AtomicBool::new(false);
@@ -56,19 +79,32 @@ fn create_audio_provider(_bundle_id: &str) -> std::sync::Arc<dyn hypr_audio_actu
 
 #[tokio::main]
 pub async fn main() {
+    startup_log("lib::main entered");
     tauri::async_runtime::set(tokio::runtime::Handle::current());
+    startup_log("async runtime set");
     let context = tauri::generate_context!();
+    startup_log("context generated");
 
+    startup_log("spawning root supervisor");
     let (root_supervisor_ctx, root_supervisor_handle) =
         match supervisor::spawn_root_supervisor().await {
-            Some((ctx, handle)) => (Some(ctx), Some(handle)),
-            None => (None, None),
+            Some((ctx, handle)) => {
+                startup_log("root supervisor spawned");
+                (Some(ctx), Some(handle))
+            }
+            None => {
+                startup_log("root supervisor spawn failed (continuing without)");
+                (None, None)
+            }
         };
 
     let audio: std::sync::Arc<dyn hypr_audio_actual::AudioProvider> =
         create_audio_provider(&context.config().identifier);
+    startup_log("audio provider created");
 
+    startup_log("opening desktop db");
     let db = open_desktop_db(&context.config().identifier).await;
+    startup_log("desktop db opened");
     let cloudsync_config = match cloudsync_runtime_config_from_env() {
         Ok(config) => config,
         Err(error) => {
@@ -144,6 +180,8 @@ pub async fn main() {
         builder = builder.plugin(tauri_plugin_prevent_default::init());
     }
 
+    startup_log("all plugins registered, building app");
+
     let specta_builder = make_specta_builder::<tauri::Wry>();
 
     let root_supervisor_ctx_for_run = root_supervisor_ctx.clone();
@@ -152,6 +190,7 @@ pub async fn main() {
         .invoke_handler(specta_builder.invoke_handler())
         .on_window_event(tauri_plugin_windows::on_window_event)
         .setup(move |app| {
+            startup_log("setup callback entered");
             let app_handle = app.handle().clone();
 
             specta_builder.mount_events(&app_handle);
@@ -215,13 +254,20 @@ pub async fn main() {
 
             search_index::spawn(app_handle, db.clone());
 
+            startup_log("setup callback completed");
             Ok(())
         })
         .build(context);
 
     let app = match app_result {
-        Ok(app) => app,
-        Err(error) => exit_after_startup_failure(&error),
+        Ok(app) => {
+            startup_log("app built successfully");
+            app
+        }
+        Err(error) => {
+            startup_log(&format!("app build FAILED: {error}"));
+            exit_after_startup_failure(&error)
+        }
     };
 
     match get_onboarding_flag() {
@@ -240,12 +286,18 @@ pub async fn main() {
     }
 
     {
+        startup_log("showing main window");
         let app_handle = app.handle().clone();
-        if let Err(error) = AppWindow::Main.show(&app_handle) {
-            tracing::error!(%error, "failed to show main window");
+        match AppWindow::Main.show(&app_handle) {
+            Ok(_) => startup_log("main window shown successfully"),
+            Err(error) => {
+                startup_log(&format!("FAILED to show main window: {error}"));
+                tracing::error!(%error, "failed to show main window");
+            }
         }
     }
 
+    startup_log("entering app.run event loop");
     #[allow(unused_variables)]
     app.run(move |app, event| match event {
         tauri::RunEvent::ExitRequested { api, .. } => {
@@ -296,6 +348,7 @@ fn startup_failure_message(error: &impl std::fmt::Display) -> String {
 
 fn exit_after_startup_failure(error: &impl std::fmt::Display) -> ! {
     let message = startup_failure_message(error);
+    startup_log(&format!("FATAL: {message}"));
     eprintln!("{message}");
     tracing::error!(error = %error, "desktop startup failed");
 
