@@ -1,10 +1,6 @@
 import { type UnlistenFn } from "@tauri-apps/api/event";
 
 import { events as notificationEvents } from "@hypr/plugin-notification";
-import {
-  commands as updaterCommands,
-  events as updaterEvents,
-} from "@hypr/plugin-updater2";
 import { getCurrentWebviewWindowLabel } from "@hypr/plugin-windows";
 
 import { liveQueryClient } from "~/db";
@@ -304,35 +300,6 @@ function LiveCaptureConfigSyncReady({
   return null;
 }
 
-function useUpdaterEvents() {
-  const openNew = useTabs((state) => state.openNew);
-  const openNewRef = useLatestRef(openNew);
-
-  useMountEffect(() => {
-    if (getCurrentWebviewWindowLabel() !== "main") {
-      return;
-    }
-
-    let unlisten: UnlistenFn | null = null;
-
-    void updaterEvents.updatedEvent
-      .listen(({ payload: { previous, current } }) => {
-        openNewRef.current({
-          type: "changelog",
-          state: { previous, current },
-        });
-      })
-      .then(async (f) => {
-        unlisten = f;
-        await updaterCommands.maybeEmitUpdated();
-      });
-
-    return () => {
-      unlisten?.();
-    };
-  });
-}
-
 function useNotificationEvents() {
   const ignoredPlatforms = useConfigValue("ignored_platforms");
   const openNew = useTabs((state) => state.openNew);
@@ -486,7 +453,6 @@ export function EventListeners() {
 }
 
 function EventListenersInner() {
-  useUpdaterEvents();
   useNotificationEvents();
 
   return null;

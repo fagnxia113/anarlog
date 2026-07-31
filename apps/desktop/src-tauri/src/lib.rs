@@ -8,7 +8,7 @@ mod search_index;
 mod store;
 mod supervisor;
 
-use db::{cloudsync_runtime_config_from_env, open_desktop_db};
+use db::open_desktop_db;
 use ext::*;
 use store::*;
 
@@ -105,14 +105,6 @@ pub async fn main() {
     startup_log("opening desktop db");
     let db = open_desktop_db(&context.config().identifier).await;
     startup_log("desktop db opened");
-    let cloudsync_config = match cloudsync_runtime_config_from_env() {
-        Ok(config) => config,
-        Err(error) => {
-            tracing::warn!(%error, "invalid CloudSync environment configuration; CloudSync disabled");
-            None
-        }
-    };
-
     let mut builder = tauri_plugin_windows::extend_builder(tauri::Builder::default())
         .manage(audio)
         .manage(db.clone());
@@ -127,10 +119,7 @@ pub async fn main() {
         .plugin(tauri_plugin_opener2::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_tracing::init())
-        .plugin(tauri_plugin_db::init_with_cloudsync(
-            db.clone(),
-            cloudsync_config,
-        ));
+        .plugin(tauri_plugin_db::init(db.clone()));
 
     builder = builder
         .plugin(tauri_plugin_icon::init())
@@ -152,8 +141,6 @@ pub async fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_store2::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_updater2::init())
         .plugin(tauri_plugin_tray::init())
         .plugin(tauri_plugin_settings::init())
         .plugin(tauri_plugin_windows::init())
@@ -423,21 +410,17 @@ mod test {
     }
 
     #[test]
-    fn main_capability_allows_cloudsync_lifecycle_commands() {
+    fn main_capability_does_not_expose_manual_cloudsync_command() {
         let capability: serde_json::Value =
             serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
         let permissions = capability["permissions"].as_array().unwrap();
 
-        for expected in [
-            "db:allow-begin-cloudsync-activity",
-            "db:allow-end-cloudsync-activity",
-            "db:allow-sync-cloudsync-now",
-        ] {
-            assert!(
-                permissions.iter().any(|permission| permission == expected),
-                "missing permission: {expected}"
-            );
-        }
+        assert!(
+            !permissions
+                .iter()
+                .any(|permission| permission == "db:allow-sync-cloudsync-now"),
+            "manual CloudSync must not be exposed"
+        );
     }
 
     #[test]

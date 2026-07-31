@@ -45,10 +45,6 @@ const mocks = vi.hoisted(() => ({
     devtoolsPanelHide: vi.fn(async () => ({ status: "ok" as const })),
     devtoolsPanelShow: vi.fn(async () => ({ status: "ok" as const })),
   },
-  updateControl: {
-    status: null as null | "available" | "downloading" | "ready" | "failed",
-    version: null as string | null,
-  },
   upcomingMeetingStatus: null as null | {
     itemKey: string;
     label: string;
@@ -217,11 +213,6 @@ vi.mock("./tab-content", () => ({
   },
 }));
 
-vi.mock("./update-banner", () => ({
-  SidebarTimelineUpdateButton: () => <button type="button">Update</button>,
-  useDesktopUpdateControl: () => mocks.updateControl,
-}));
-
 vi.mock("./useShortcuts", () => ({
   useClassicMainShortcuts: () => ({ runEscapeShortcut: vi.fn() }),
 }));
@@ -291,8 +282,6 @@ describe("ClassicMainBody", () => {
     mocks.devtoolsPanelActionListeners = [];
     mocks.windowsCommands.devtoolsPanelHide.mockClear();
     mocks.windowsCommands.devtoolsPanelShow.mockClear();
-    mocks.updateControl.status = null;
-    mocks.updateControl.version = null;
     mocks.upcomingMeetingStatus = null;
     mocks.setUpcomingMeetingStatus = null;
     vi.mocked(commands.showDevtool).mockClear();
@@ -615,18 +604,6 @@ describe("ClassicMainBody", () => {
       screen.getByTestId("collapsed-sidebar-upcoming-meeting-badge"),
     ).toBeTruthy();
     expect(mocks.tabContentRenderCount).toBe(initialRenderCount);
-  });
-
-  it("keeps the update button in the fixed sidebar control group", () => {
-    mocks.updateControl.status = "available";
-    mocks.updateControl.version = "1.0.34";
-
-    render(<ClassicMainBody />);
-
-    const searchButton = screen.getByRole("button", { name: "Search" });
-    const updateButton = screen.getByRole("button", { name: "Update" });
-
-    expect(updateButton.parentElement).toBe(searchButton.parentElement);
   });
 
   it("keeps near-equal sidebar size commits in sync with drag-time CSS variables", () => {

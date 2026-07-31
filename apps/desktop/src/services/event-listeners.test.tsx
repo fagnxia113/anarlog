@@ -8,8 +8,6 @@ import { createBatchCompletedNotificationKey } from "~/stt/batch-completed-notif
 
 const {
   notificationListenMock,
-  updaterListenMock,
-  maybeEmitUpdatedMock,
   getCurrentWebviewWindowLabelMock,
   liveQuerySubscribeMock,
   listenerSubscribeMock,
@@ -26,8 +24,6 @@ const {
   getListenerStateMock,
 } = vi.hoisted(() => ({
   notificationListenMock: vi.fn(),
-  updaterListenMock: vi.fn(),
-  maybeEmitUpdatedMock: vi.fn(),
   getCurrentWebviewWindowLabelMock: vi.fn(() => "main"),
   liveQuerySubscribeMock: vi.fn(),
   listenerSubscribeMock: vi.fn(),
@@ -48,17 +44,6 @@ vi.mock("@hypr/plugin-notification", () => ({
   events: {
     notificationEvent: {
       listen: notificationListenMock,
-    },
-  },
-}));
-
-vi.mock("@hypr/plugin-updater2", () => ({
-  commands: {
-    maybeEmitUpdated: maybeEmitUpdatedMock,
-  },
-  events: {
-    updatedEvent: {
-      listen: updaterListenMock,
     },
   },
 }));
@@ -106,8 +91,6 @@ vi.mock("~/store/zustand/listener/instance", () => ({
 describe("EventListeners notification events", () => {
   beforeEach(() => {
     notificationListenMock.mockReset();
-    updaterListenMock.mockReset();
-    maybeEmitUpdatedMock.mockReset();
     getCurrentWebviewWindowLabelMock.mockReset();
     liveQuerySubscribeMock.mockReset();
     listenerSubscribeMock.mockReset();
@@ -125,7 +108,6 @@ describe("EventListeners notification events", () => {
 
     getCurrentWebviewWindowLabelMock.mockReturnValue("main");
     notificationListenMock.mockResolvedValue(() => {});
-    updaterListenMock.mockResolvedValue(() => {});
     createSessionMock.mockResolvedValue("session-new");
     getOrCreateSessionForEventIdMock.mockResolvedValue("session-event");
     getCalendarEventStartedAtMock.mockResolvedValue(null);

@@ -17,8 +17,8 @@ use crate::{
 };
 
 use crate::menu_items::{
-    AppInfo, AppNew, HelpReportBug, HelpSuggestFeature, MenuItemHandler, TrayCheckUpdate, TrayOpen,
-    TrayQuit, TraySettings, TrayShowEvents, TrayStart, TrayVersion, build_agenda_item,
+    AppInfo, AppNew, HelpReportBug, HelpSuggestFeature, MenuItemHandler, TrayOpen, TrayQuit,
+    TraySettings, TrayShowEvents, TrayStart, TrayVersion, build_agenda_item,
 };
 use tauri_plugin_store2::Store2PluginExt;
 
@@ -26,7 +26,6 @@ const TRAY_ID: &str = "hypr-tray";
 
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 static IS_DEGRADED: AtomicBool = AtomicBool::new(false);
-static IS_UPDATE_AVAILABLE: AtomicBool = AtomicBool::new(false);
 static SHOW_EVENTS: AtomicBool = AtomicBool::new(true);
 static START_DISABLED: AtomicBool = AtomicBool::new(false);
 static ANIMATION_TASK: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
@@ -45,7 +44,6 @@ impl<'a, M: tauri::Manager<tauri::Wry>> Tray<'a, tauri::Wry, M> {
         let app = self.manager.app_handle();
 
         let info_item = AppInfo::build(app)?;
-        let check_update_item = TrayCheckUpdate::build(app)?;
         let settings_item = TraySettings::build(app)?;
         let new_item = AppNew::build(app)?;
         let report_bug_item = HelpReportBug::build(app)?;
@@ -67,7 +65,6 @@ impl<'a, M: tauri::Manager<tauri::Wry>> Tray<'a, tauri::Wry, M> {
                     true,
                     &[
                         &info_item,
-                        &check_update_item,
                         &settings_item,
                         &PredefinedMenuItem::separator(app)?,
                         &PredefinedMenuItem::services(app, None)?,
@@ -313,7 +310,6 @@ impl<'a, M: tauri::Manager<tauri::Wry>> Tray<'a, tauri::Wry, M> {
         menu.append(&TraySettings::build(app)?)?;
         menu.append(&PredefinedMenuItem::separator(app)?)?;
         menu.append(&TrayVersion::build(app)?)?;
-        menu.append(&TrayCheckUpdate::build(app)?)?;
         menu.append(&PredefinedMenuItem::separator(app)?)?;
         menu.append(&TrayQuit::build(app)?)?;
 
@@ -356,11 +352,6 @@ impl<'a, M: tauri::Manager<tauri::Wry>> Tray<'a, tauri::Wry, M> {
         Self::refresh_icon(self.manager.app_handle())
     }
 
-    pub fn set_update_available(&self, available: bool) -> Result<()> {
-        IS_UPDATE_AVAILABLE.store(available, Ordering::SeqCst);
-        Self::refresh_icon(self.manager.app_handle())
-    }
-
     fn refresh_icon(app: &AppHandle<tauri::Wry>) -> Result<()> {
         {
             let mut task = ANIMATION_TASK.lock().unwrap();
@@ -391,9 +382,7 @@ impl<'a, M: tauri::Manager<tauri::Wry>> Tray<'a, tauri::Wry, M> {
             return Ok(());
         };
 
-        let state = if IS_UPDATE_AVAILABLE.load(Ordering::SeqCst) {
-            TrayIconState::UpdateAvailable
-        } else if IS_DEGRADED.load(Ordering::SeqCst) {
+        let state = if IS_DEGRADED.load(Ordering::SeqCst) {
             TrayIconState::Degraded
         } else {
             TrayIconState::Default

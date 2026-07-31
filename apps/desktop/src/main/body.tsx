@@ -35,11 +35,6 @@ import { cn } from "@hypr/utils";
 
 import { ClassicMainSidebar } from "./shell-sidebar";
 import { ClassicMainTabContent } from "./tab-content";
-import {
-  type DesktopUpdateControl,
-  SidebarTimelineUpdateButton,
-  useDesktopUpdateControl,
-} from "./update-banner";
 import { useClassicMainShortcuts } from "./useShortcuts";
 
 import { useShell } from "~/contexts/shell";
@@ -166,7 +161,6 @@ export function ClassicMainBody() {
   const enableMainAreaTopDrag =
     showSidebarTimelineChrome || hasLeftSurfaceCustomSidebar;
   const mainAreaTopDrag = useMainAreaTopWindowDrag(enableMainAreaTopDrag);
-  const update = useDesktopUpdateControl();
   const currentSessionId =
     currentTab?.type === "sessions" ? currentTab.id : undefined;
   const createNewNote = useNewNote();
@@ -488,7 +482,6 @@ export function ClassicMainBody() {
           onSearch={handleOpenNoteDialog}
           onOpenDevtools={handleOpenDevtoolsPanel}
           onToggleSidebar={handleToggleLeftSidebar}
-          update={update}
         />
       ) : null}
     </div>
@@ -526,7 +519,6 @@ export function ClassicMainBody() {
               onSearch={handleOpenNoteDialog}
               onOpenDevtools={handleOpenDevtoolsPanel}
               onToggleSidebar={handleToggleLeftSidebar}
-              update={update}
             />
           </div>
         </div>
@@ -883,7 +875,6 @@ const SidebarTimelineChromeWithUpcomingMeeting = memo(
     sidebarExpanded,
     showDevtoolsPanelButton,
     showIgnoredTimelineEvents,
-    update,
   }: {
     currentSessionId?: string;
     devtoolsPanelOpen: boolean;
@@ -895,7 +886,6 @@ const SidebarTimelineChromeWithUpcomingMeeting = memo(
     sidebarExpanded: boolean;
     showDevtoolsPanelButton: boolean;
     showIgnoredTimelineEvents: boolean;
-    update: DesktopUpdateControl;
   }) {
     const upcomingMeetingStatus = useSidebarUpcomingMeetingStatus({
       showIgnored: showIgnoredTimelineEvents,
@@ -916,7 +906,6 @@ const SidebarTimelineChromeWithUpcomingMeeting = memo(
         onToggleSidebar={onToggleSidebar}
         sidebarExpanded={sidebarExpanded}
         showDevtoolsPanelButton={showDevtoolsPanelButton}
-        update={update}
       />
     );
   },
@@ -932,7 +921,6 @@ function SidebarTimelineChrome({
   onToggleSidebar,
   sidebarExpanded,
   showDevtoolsPanelButton,
-  update,
 }: {
   devtoolsPanelOpen: boolean;
   hasUpcomingMeeting: boolean;
@@ -943,17 +931,9 @@ function SidebarTimelineChrome({
   onToggleSidebar: () => void;
   sidebarExpanded: boolean;
   showDevtoolsPanelButton: boolean;
-  update: DesktopUpdateControl;
 }) {
-  const updateVisible = Boolean(update.status && update.version);
-  const showUpdateButton = sidebarExpanded && updateVisible;
-  const collapsedBadge = !sidebarExpanded
-    ? hasUpcomingMeeting
-      ? "upcomingMeeting"
-      : updateVisible
-        ? "update"
-        : null
-    : null;
+  const collapsedBadge =
+    !sidebarExpanded && hasUpcomingMeeting ? "upcomingMeeting" : null;
 
   return (
     <div data-tauri-drag-region className="flex w-full items-center">
@@ -991,9 +971,6 @@ function SidebarTimelineChrome({
                 <WrenchIcon size={15} />
               </LeftSurfaceChromeButton>
             ) : null}
-            {showUpdateButton ? (
-              <SidebarTimelineUpdateButton update={update} />
-            ) : null}
           </>
         ) : null}
       </div>
@@ -1001,7 +978,7 @@ function SidebarTimelineChrome({
   );
 }
 
-type LeftSurfaceChromeBadge = "update" | "upcomingMeeting";
+type LeftSurfaceChromeBadge = "upcomingMeeting";
 
 function LeftSurfaceChromeButton({
   ariaLabel,
@@ -1034,14 +1011,10 @@ function LeftSurfaceChromeButton({
       {badge ? (
         <span
           aria-hidden="true"
-          data-testid={
-            badge === "upcomingMeeting"
-              ? "collapsed-sidebar-upcoming-meeting-badge"
-              : "collapsed-sidebar-update-badge"
-          }
+          data-testid="collapsed-sidebar-upcoming-meeting-badge"
           className={cn([
             "ring-background pointer-events-none absolute top-1 right-1 size-1.5 rounded-full ring-2",
-            badge === "upcomingMeeting" ? "bg-red-500" : "bg-blue-500",
+            "bg-red-500",
           ])}
         />
       ) : null}
