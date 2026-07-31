@@ -402,9 +402,26 @@ fn prepare_speaker_runtime(vcrt_dir: &Path, engine_dir: &Path) -> Result<(), Str
     Ok(())
 }
 
+fn remove_broken_torch_installation(engine_dir: &Path) -> Result<(), String> {
+    let site_packages = engine_dir.join("python").join("Lib").join("site-packages");
+    if !site_packages.is_dir() { return Ok(()); }
+    for entry in fs::read_dir(&site_packages).map_err(app_error)? {
+        let entry = entry.map_err(app_error)?;
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        let is_torch_package = matches!(name.as_str(), "torch" | "torchgen" | "torchaudio" | "functorch")
+            || (name.starts_with("torch-") && name.ends_with(".dist-info"))
+            || (name.starts_with("torchaudio-") && name.ends_with(".dist-info"));
+        if !is_torch_package { continue; }
+        let path = entry.path();
+        let result = if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
+        result.map_err(|error| format!("清理损坏的本地计算组件失败（{}）：{error}", path.display()))?;
+    }
+    Ok(())
+}
+
 fn install_python_packages(python: &Path, packages: &[&str], index: &str, extra_index: Option<&str>, force_reinstall: bool, stage: &str) -> Result<(), String> {
     let mut arguments = vec![
-        "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--prefer-binary",
+        "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--no-warn-script-location", "--prefer-binary",
         "--retries", "12", "--resume-retries", "12", "--timeout", "90", "--index-url", index,
     ];
     if let Some(extra_index) = extra_index { arguments.extend_from_slice(&["--extra-index-url", extra_index]); }
@@ -441,7 +458,8 @@ fn install_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, vcrt_dir: Pa
     if !get_pip.is_file() { download_file(GET_PIP_URL, &get_pip)?; }
     let get_pip_arg = get_pip.to_string_lossy().into_owned();
     run_python(&python, &[&get_pip_arg, "--disable-pip-version-check"], "准备会议引擎")?;
-    install_python_packages(&python, &[TORCH_CPU_VERSION, TORCHAUDIO_CPU_VERSION], PYTORCH_CPU_INDEX, None, true, "修复本地计算组件")?;
+    remove_broken_torch_installation(&engine_dir)?;
+    install_python_packages(&python, &[TORCH_CPU_VERSION, TORCHAUDIO_CPU_VERSION], PYTORCH_CPU_INDEX, None, false, "修复本地计算组件")?;
     install_python_packages_with_fallback(&python, &["funasr", "modelscope", "soundfile", TORCH_CPU_VERSION, TORCHAUDIO_CPU_VERSION], "安装说话人分离组件")?;
     run_python(&python, &["-c", "import torch, torchaudio, torchgen; print(torch.__version__, torchaudio.__version__)"], "验证本地计算组件")?;
     run_python(&python, &["-m", "pip", "check"], "检查说话人引擎依赖")?;
