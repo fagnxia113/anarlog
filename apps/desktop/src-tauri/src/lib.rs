@@ -26,6 +26,11 @@ const FFMPEG_EXECUTABLE: &str = "ffmpeg.exe";
 const MODEL_DOWNLOAD_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Zhiji/1.0";
 const ALIYUN_PYPI_INDEX: &str = "https://mirrors.aliyun.com/pypi/simple/";
 const OFFICIAL_PYPI_INDEX: &str = "https://pypi.org/simple";
+const VC_RUNTIME_DLLS: &[&str] = &[
+    "concrt140.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
+    "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll", "vcomp140.dll",
+    "vcruntime140.dll", "vcruntime140_1.dll",
+];
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const PYTHON_EMBED_URL: &str = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip";
@@ -38,6 +43,7 @@ struct AppState {
     recordings_dir: PathBuf,
     runtime_dir: PathBuf,
     ffmpeg_dir: PathBuf,
+    vcrt_dir: PathBuf,
     speaker_engine_dir: PathBuf,
     speaker_models_dir: PathBuf,
 }
@@ -134,6 +140,7 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
     let resource_dir = app.path().resource_dir()?;
     let runtime_dir = resource_folder(&resource_dir, "funasr-runtime", SENSEVOICE_EXECUTABLE);
     let ffmpeg_dir = resource_folder(&resource_dir, "ffmpeg", FFMPEG_EXECUTABLE);
+    let vcrt_dir = resource_folder(&resource_dir, "vcrt", "vcruntime140.dll");
     let database_path = data_dir.join("zhiji.sqlite3");
     let connection = Connection::open(&database_path)?;
     connection.execute_batch(
@@ -172,7 +179,7 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
             params![id(), notebook_id, "欢迎使用知记", "从这里开始记录。你可以创建会议、保存录音、整理纪要，并把行动项统一放进待办。", "开始使用", now()],
         )?;
     }
-    Ok(AppState { connection: Mutex::new(connection), database_path, models_dir, recordings_dir, runtime_dir, ffmpeg_dir, speaker_engine_dir, speaker_models_dir })
+    Ok(AppState { connection: Mutex::new(connection), database_path, models_dir, recordings_dir, runtime_dir, ffmpeg_dir, vcrt_dir, speaker_engine_dir, speaker_models_dir })
 }
 
 fn ensure_column(connection: &Connection, table: &str, column: &str, definition: &str) -> Result<(), Box<dyn Error>> {
@@ -354,6 +361,12 @@ fn extract_zip(archive: &Path, destination: &Path) -> Result<(), String> {
 fn run_python(python: &Path, arguments: &[&str], stage: &str) -> Result<(), String> {
     let mut command = Command::new(python);
     command.args(arguments);
+    if let Some(python_dir) = python.parent() {
+        let torch_lib = python_dir.join("Lib").join("site-packages").join("torch").join("lib");
+        let mut paths = vec![python_dir.to_path_buf(), torch_lib];
+        if let Some(current_path) = std::env::var_os("PATH") { paths.extend(std::env::split_paths(&current_path)); }
+        command.env("PATH", std::env::join_paths(paths).map_err(app_error)?);
+    }
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     let output = command.output().map_err(app_error)?;
@@ -362,6 +375,20 @@ fn run_python(python: &Path, arguments: &[&str], stage: &str) -> Result<(), Stri
     let standard_output = String::from_utf8_lossy(&output.stdout);
     let details = if error.trim().is_empty() { standard_output.trim() } else { error.trim() };
     Err(format!("{stage}失败：{details}"))
+}
+
+fn prepare_speaker_runtime(vcrt_dir: &Path, engine_dir: &Path) -> Result<(), String> {
+    let python_dir = engine_dir.join("python");
+    if !python_dir.is_dir() { return Err("本地 Python 运行时不存在，请重新安装说话人引擎".to_string()); }
+    for name in VC_RUNTIME_DLLS {
+        let source = vcrt_dir.join(name);
+        if !source.is_file() { return Err("安装包缺少 Windows VC++ 运行库，请覆盖安装最新版知记后重试".to_string()); }
+        let destination = python_dir.join(name);
+        let needs_copy = !destination.is_file()
+            || fs::metadata(&source).map_err(app_error)?.len() != fs::metadata(&destination).map_err(app_error)?.len();
+        if needs_copy { fs::copy(&source, &destination).map_err(app_error)?; }
+    }
+    Ok(())
 }
 
 fn install_python_packages(python: &Path, packages: &[&str], index: &str, stage: &str) -> Result<(), String> {
@@ -381,7 +408,7 @@ fn install_python_packages_with_fallback(python: &Path, packages: &[&str], stage
     }
 }
 
-fn install_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf) -> Result<(), String> {
+fn install_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, vcrt_dir: PathBuf) -> Result<(), String> {
     let python = speaker_python(&engine_dir);
     if speaker_marker(&engine_dir).is_file() && python.is_file() { return Ok(()); }
     fs::create_dir_all(&engine_dir).map_err(app_error)?;
@@ -396,21 +423,24 @@ fn install_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf) -> Result<()
     let pth = engine_dir.join("python").join("python311._pth");
     let content = fs::read_to_string(&pth).map_err(app_error)?;
     fs::write(&pth, content.replace("#import site", "import site")).map_err(app_error)?;
+    prepare_speaker_runtime(&vcrt_dir, &engine_dir)?;
     let get_pip = engine_dir.join("get-pip.py");
     if !get_pip.is_file() { download_file(GET_PIP_URL, &get_pip)?; }
     let get_pip_arg = get_pip.to_string_lossy().into_owned();
     run_python(&python, &[&get_pip_arg, "--disable-pip-version-check"], "准备会议引擎")?;
     install_python_packages(&python, &["torch", "torchaudio"], "https://download.pytorch.org/whl/cpu", "安装本地计算组件")?;
     install_python_packages_with_fallback(&python, &["funasr", "modelscope", "soundfile"], "安装说话人分离组件")?;
+    run_python(&python, &["-c", "import torch; print(torch.__version__)"], "验证本地计算组件")?;
     fs::write(speaker_script(&engine_dir), include_str!("speaker_engine.py")).map_err(app_error)?;
     fs::write(speaker_marker(&engine_dir), "ready").map_err(app_error)?;
     Ok(())
 }
 
-fn run_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, runtime_dir: PathBuf, ffmpeg_dir: PathBuf, audio_path: String) -> Result<SpeakerTranscript, String> {
+fn run_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, runtime_dir: PathBuf, ffmpeg_dir: PathBuf, vcrt_dir: PathBuf, audio_path: String) -> Result<SpeakerTranscript, String> {
     let python = speaker_python(&engine_dir);
     let script = speaker_script(&engine_dir);
     if !speaker_marker(&engine_dir).is_file() || !python.is_file() || !script.is_file() { return Err("请先在设置中安装本地说话人分离引擎".to_string()); }
+    prepare_speaker_runtime(&vcrt_dir, &engine_dir)?;
     let (wav_path, remove_wav) = to_wav(&runtime_dir, &ffmpeg_dir, &audio_path)?;
     let result_path = engine_dir.join(format!("speaker-result-{}.json", Uuid::new_v4()));
     let audio_arg = wav_path.to_string_lossy().into_owned();
@@ -497,7 +527,8 @@ async fn download_local_asr_model(state: State<'_, AppState>) -> Result<LocalAsr
 async fn install_speaker_engine_command(state: State<'_, AppState>) -> Result<SpeakerEngineStatus, String> {
     let engine_dir = state.speaker_engine_dir.clone();
     let models_dir = state.speaker_models_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || install_speaker_engine(engine_dir, models_dir)).await.map_err(|error| format!("说话人引擎安装任务中断：{error}"))??;
+    let vcrt_dir = state.vcrt_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || install_speaker_engine(engine_dir, models_dir, vcrt_dir)).await.map_err(|error| format!("说话人引擎安装任务中断：{error}"))??;
     Ok(speaker_engine_status(&state))
 }
 
@@ -598,7 +629,8 @@ async fn transcribe_meeting_with_speakers(state: State<'_, AppState>, meeting_id
     let models_dir = state.speaker_models_dir.clone();
     let runtime_dir = state.runtime_dir.clone();
     let ffmpeg_dir = state.ffmpeg_dir.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || run_speaker_engine(engine_dir, models_dir, runtime_dir, ffmpeg_dir, audio_path)).await.map_err(|error| format!("说话人分离任务中断：{error}"))??;
+    let vcrt_dir = state.vcrt_dir.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || run_speaker_engine(engine_dir, models_dir, runtime_dir, ffmpeg_dir, vcrt_dir, audio_path)).await.map_err(|error| format!("说话人分离任务中断：{error}"))??;
     let segments = serde_json::to_string(&result.segments).map_err(app_error)?;
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
     connection.execute("UPDATE meetings SET transcript = ?2, speaker_segments = ?3, status = ?4, updated_at = ?5 WHERE id = ?1", params![meeting_id, result.transcript, segments, "已区分发言人", now()]).map_err(app_error)?;

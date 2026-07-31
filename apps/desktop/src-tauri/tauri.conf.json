@@ -32,7 +32,8 @@
     "targets": ["nsis"],
     "resources": {
       "resources/funasr-runtime/": "funasr-runtime/",
-      "resources/ffmpeg/": "ffmpeg/"
+      "resources/ffmpeg/": "ffmpeg/",
+      "resources/vcrt/": "vcrt/"
     },
     "externalBin": [],
     "icon": [
