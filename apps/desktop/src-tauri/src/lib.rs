@@ -26,6 +26,10 @@ const FFMPEG_EXECUTABLE: &str = "ffmpeg.exe";
 const MODEL_DOWNLOAD_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Zhiji/1.0";
 const ALIYUN_PYPI_INDEX: &str = "https://mirrors.aliyun.com/pypi/simple/";
 const OFFICIAL_PYPI_INDEX: &str = "https://pypi.org/simple";
+const PYTORCH_CPU_INDEX: &str = "https://download.pytorch.org/whl/cpu";
+const TORCH_CPU_VERSION: &str = "torch==2.11.0+cpu";
+const TORCHAUDIO_CPU_VERSION: &str = "torchaudio==2.11.0+cpu";
+const SPEAKER_ENGINE_VERSION: &str = "2";
 const VC_RUNTIME_DLLS: &[&str] = &[
     "concrt140.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
     "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll", "vcomp140.dll",
@@ -342,9 +346,15 @@ fn speaker_script(engine_dir: &Path) -> PathBuf { engine_dir.join("diarize.py") 
 fn speaker_marker(engine_dir: &Path) -> PathBuf { engine_dir.join(".installed") }
 fn speaker_models_marker(models_dir: &Path) -> PathBuf { models_dir.join(".ready") }
 
+fn speaker_engine_installed(engine_dir: &Path) -> bool {
+    speaker_python(engine_dir).is_file()
+        && speaker_script(engine_dir).is_file()
+        && fs::read_to_string(speaker_marker(engine_dir)).is_ok_and(|version| version.trim() == SPEAKER_ENGINE_VERSION)
+}
+
 fn speaker_engine_status(state: &AppState) -> SpeakerEngineStatus {
     SpeakerEngineStatus {
-        installed: speaker_python(&state.speaker_engine_dir).is_file() && speaker_marker(&state.speaker_engine_dir).is_file(),
+        installed: speaker_engine_installed(&state.speaker_engine_dir),
         models_ready: speaker_models_marker(&state.speaker_models_dir).is_file(),
     }
 }
@@ -368,12 +378,6 @@ fn extract_zip(archive: &Path, destination: &Path) -> Result<(), String> {
 fn run_python(python: &Path, arguments: &[&str], stage: &str) -> Result<(), String> {
     let mut command = Command::new(python);
     command.args(arguments);
-    if let Some(python_dir) = python.parent() {
-        let torch_lib = python_dir.join("Lib").join("site-packages").join("torch").join("lib");
-        let mut paths = vec![python_dir.to_path_buf(), torch_lib];
-        if let Some(current_path) = std::env::var_os("PATH") { paths.extend(std::env::split_paths(&current_path)); }
-        command.env("PATH", std::env::join_paths(paths).map_err(app_error)?);
-    }
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     let output = command.output().map_err(app_error)?;
@@ -398,26 +402,28 @@ fn prepare_speaker_runtime(vcrt_dir: &Path, engine_dir: &Path) -> Result<(), Str
     Ok(())
 }
 
-fn install_python_packages(python: &Path, packages: &[&str], index: &str, stage: &str) -> Result<(), String> {
+fn install_python_packages(python: &Path, packages: &[&str], index: &str, extra_index: Option<&str>, force_reinstall: bool, stage: &str) -> Result<(), String> {
     let mut arguments = vec![
         "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--prefer-binary",
         "--retries", "12", "--resume-retries", "12", "--timeout", "90", "--index-url", index,
     ];
+    if let Some(extra_index) = extra_index { arguments.extend_from_slice(&["--extra-index-url", extra_index]); }
+    if force_reinstall { arguments.push("--force-reinstall"); }
     arguments.extend_from_slice(packages);
     run_python(python, &arguments, stage)
 }
 
 fn install_python_packages_with_fallback(python: &Path, packages: &[&str], stage: &str) -> Result<(), String> {
-    match install_python_packages(python, packages, ALIYUN_PYPI_INDEX, stage) {
+    match install_python_packages(python, packages, ALIYUN_PYPI_INDEX, Some(PYTORCH_CPU_INDEX), false, stage) {
         Ok(()) => Ok(()),
-        Err(mirror_error) => install_python_packages(python, packages, OFFICIAL_PYPI_INDEX, stage)
+        Err(mirror_error) => install_python_packages(python, packages, OFFICIAL_PYPI_INDEX, Some(PYTORCH_CPU_INDEX), false, stage)
             .map_err(|official_error| format!("{official_error}\n\n国内镜像的首次尝试也失败：{mirror_error}")),
     }
 }
 
 fn install_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, vcrt_dir: PathBuf) -> Result<(), String> {
     let python = speaker_python(&engine_dir);
-    if speaker_marker(&engine_dir).is_file() && python.is_file() { return Ok(()); }
+    if speaker_engine_installed(&engine_dir) { return Ok(()); }
     fs::create_dir_all(&engine_dir).map_err(app_error)?;
     fs::create_dir_all(&models_dir).map_err(app_error)?;
     let archive = engine_dir.join("python-embed.zip");
@@ -435,18 +441,19 @@ fn install_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, vcrt_dir: Pa
     if !get_pip.is_file() { download_file(GET_PIP_URL, &get_pip)?; }
     let get_pip_arg = get_pip.to_string_lossy().into_owned();
     run_python(&python, &[&get_pip_arg, "--disable-pip-version-check"], "准备会议引擎")?;
-    install_python_packages(&python, &["torch", "torchaudio"], "https://download.pytorch.org/whl/cpu", "安装本地计算组件")?;
-    install_python_packages_with_fallback(&python, &["funasr", "modelscope", "soundfile"], "安装说话人分离组件")?;
-    run_python(&python, &["-c", "import torch; print(torch.__version__)"], "验证本地计算组件")?;
+    install_python_packages(&python, &[TORCH_CPU_VERSION, TORCHAUDIO_CPU_VERSION], PYTORCH_CPU_INDEX, None, true, "修复本地计算组件")?;
+    install_python_packages_with_fallback(&python, &["funasr", "modelscope", "soundfile", TORCH_CPU_VERSION, TORCHAUDIO_CPU_VERSION], "安装说话人分离组件")?;
+    run_python(&python, &["-c", "import torch, torchaudio, torchgen; print(torch.__version__, torchaudio.__version__)"], "验证本地计算组件")?;
+    run_python(&python, &["-m", "pip", "check"], "检查说话人引擎依赖")?;
     fs::write(speaker_script(&engine_dir), include_str!("speaker_engine.py")).map_err(app_error)?;
-    fs::write(speaker_marker(&engine_dir), "ready").map_err(app_error)?;
+    fs::write(speaker_marker(&engine_dir), SPEAKER_ENGINE_VERSION).map_err(app_error)?;
     Ok(())
 }
 
 fn run_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, runtime_dir: PathBuf, ffmpeg_dir: PathBuf, vcrt_dir: PathBuf, audio_path: String) -> Result<SpeakerTranscript, String> {
     let python = speaker_python(&engine_dir);
     let script = speaker_script(&engine_dir);
-    if !speaker_marker(&engine_dir).is_file() || !python.is_file() || !script.is_file() { return Err("请先在设置中安装本地说话人分离引擎".to_string()); }
+    if !speaker_engine_installed(&engine_dir) || !python.is_file() || !script.is_file() { return Err("说话人引擎需要修复，请点击“安装说话人引擎”完成升级".to_string()); }
     prepare_speaker_runtime(&vcrt_dir, &engine_dir)?;
     let (wav_path, remove_wav) = to_wav(&runtime_dir, &ffmpeg_dir, &audio_path)?;
     let result_path = engine_dir.join(format!("speaker-result-{}.json", Uuid::new_v4()));
