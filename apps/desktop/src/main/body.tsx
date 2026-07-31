@@ -2,6 +2,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ArrowLeftIcon,
+  MicIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   SearchIcon,
@@ -49,7 +50,7 @@ import {
   usesNoteSurfaceMinWidth,
 } from "~/shared/main/layout-widths";
 import { useOpenNoteDialog } from "~/shared/open-note-dialog";
-import { useNewNote } from "~/shared/useNewNote";
+import { useNewNote, useNewNoteAndListen } from "~/shared/useNewNote";
 import { useSidebarUpcomingMeetingStatus } from "~/sidebar/timeline/upcoming-meeting";
 import {
   hasCustomSidebarTab,
@@ -169,6 +170,7 @@ export function ClassicMainBody() {
   const currentSessionId =
     currentTab?.type === "sessions" ? currentTab.id : undefined;
   const createNewNote = useNewNote();
+  const createNewMeeting = useNewNoteAndListen();
   const openNoteDialog = useOpenNoteDialog();
   const handleOpenNoteDialog = useCallback(() => {
     openNoteDialog.open();
@@ -481,6 +483,7 @@ export function ClassicMainBody() {
           showDevtoolsPanelButton={showDevtoolsPanelButton}
           showIgnoredTimelineEvents={showIgnoredTimelineEvents}
           devtoolsPanelOpen={devtoolsPanelOpen}
+          onNewMeeting={createNewMeeting}
           onNewNote={createNewNote}
           onSearch={handleOpenNoteDialog}
           onOpenDevtools={handleOpenDevtoolsPanel}
@@ -518,6 +521,7 @@ export function ClassicMainBody() {
               showDevtoolsPanelButton={showDevtoolsPanelButton}
               showIgnoredTimelineEvents={showIgnoredTimelineEvents}
               devtoolsPanelOpen={devtoolsPanelOpen}
+              onNewMeeting={createNewMeeting}
               onNewNote={createNewNote}
               onSearch={handleOpenNoteDialog}
               onOpenDevtools={handleOpenDevtoolsPanel}
@@ -871,6 +875,7 @@ const SidebarTimelineChromeWithUpcomingMeeting = memo(
   function SidebarTimelineChromeWithUpcomingMeeting({
     currentSessionId,
     devtoolsPanelOpen,
+    onNewMeeting,
     onNewNote,
     onOpenDevtools,
     onSearch,
@@ -882,6 +887,7 @@ const SidebarTimelineChromeWithUpcomingMeeting = memo(
   }: {
     currentSessionId?: string;
     devtoolsPanelOpen: boolean;
+    onNewMeeting: () => void;
     onNewNote: () => void;
     onOpenDevtools: () => void;
     onSearch: () => void;
@@ -903,6 +909,7 @@ const SidebarTimelineChromeWithUpcomingMeeting = memo(
       <SidebarTimelineChrome
         devtoolsPanelOpen={devtoolsPanelOpen}
         hasUpcomingMeeting={hasUpcomingMeeting}
+        onNewMeeting={onNewMeeting}
         onNewNote={onNewNote}
         onOpenDevtools={onOpenDevtools}
         onSearch={onSearch}
@@ -918,6 +925,7 @@ const SidebarTimelineChromeWithUpcomingMeeting = memo(
 function SidebarTimelineChrome({
   devtoolsPanelOpen,
   hasUpcomingMeeting,
+  onNewMeeting,
   onNewNote,
   onOpenDevtools,
   onSearch,
@@ -928,6 +936,7 @@ function SidebarTimelineChrome({
 }: {
   devtoolsPanelOpen: boolean;
   hasUpcomingMeeting: boolean;
+  onNewMeeting: () => void;
   onNewNote: () => void;
   onOpenDevtools: () => void;
   onSearch: () => void;
@@ -967,6 +976,12 @@ function SidebarTimelineChrome({
             </LeftSurfaceChromeButton>
             <LeftSurfaceChromeButton ariaLabel="New note" onClick={onNewNote}>
               <SquarePenIcon size={15} />
+            </LeftSurfaceChromeButton>
+            <LeftSurfaceChromeButton
+              ariaLabel="Start meeting"
+              onClick={onNewMeeting}
+            >
+              <MicIcon size={15} />
             </LeftSurfaceChromeButton>
             {showDevtoolsPanelButton && !devtoolsPanelOpen ? (
               <LeftSurfaceChromeButton

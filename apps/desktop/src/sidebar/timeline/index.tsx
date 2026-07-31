@@ -37,13 +37,16 @@ import {
   deriveTimelineWindowData,
   getItemTimestamp,
   type TimelineBucket,
+  type TimelineEventRow,
   type TimelineEventsTable,
   type TimelineIndicatorPlacement,
   type TimelineItem,
   type TimelinePrecision,
+  type TimelineSessionRow,
   type TimelineSessionsTable,
 } from "./utils";
 
+import { useLiveQuery } from "~/db";
 import { useDeleteSession } from "~/session/hooks/useDeleteSession";
 import { useConfigValue } from "~/shared/config";
 import { scrollElementByWheel } from "~/shared/dom/scroll-wheel";
@@ -51,9 +54,23 @@ import { useMountEffect } from "~/shared/hooks/useMountEffect";
 import { useNativeContextMenu } from "~/shared/hooks/useNativeContextMenu";
 import { useTabs } from "~/store/zustand/tabs";
 import { useTimelineSelection } from "~/store/zustand/timeline-selection";
+import { useUndoDelete } from "~/store/zustand/undo-delete";
 import { useListener } from "~/stt/contexts";
 
 const LOCAL_AUTH = { session: { user: { id: "local-user" } } };
+const EMPTY_EVENTS: Record<string, TimelineEventRow> = {};
+const EMPTY_SESSIONS: Record<string, TimelineSessionRow> = {};
+
+type TimelineEventSqlRow = Omit<
+  TimelineEventRow,
+  "has_recurrence_rules" | "is_all_day"
+> & {
+  id: string;
+  has_recurrence_rules: boolean | number;
+  is_all_day: boolean | number;
+};
+
+type TimelineSessionSqlRow = TimelineSessionRow & { id: string };
 
 function useAuth() {
   return LOCAL_AUTH;
@@ -76,7 +93,74 @@ function useTimelineTables(): {
   timelineEventsTable: TimelineEventsTable;
   timelineSessionsTable: TimelineSessionsTable;
 } {
-  return { timelineEventsTable: null, timelineSessionsTable: null };
+  const { data: timelineEventsTable = EMPTY_EVENTS } = useLiveQuery<
+    TimelineEventSqlRow,
+    Record<string, TimelineEventRow>
+  >({
+    sql: `
+      SELECT
+        id,
+        title,
+        started_at,
+        ended_at,
+        calendar_id,
+        tracking_id_event,
+        has_recurrence_rules,
+        recurrence_series_id,
+        is_all_day,
+        location,
+        meeting_link,
+        description,
+        '' AS calendar_color
+      FROM events
+      WHERE deleted_at IS NULL
+      ORDER BY started_at, id
+    `,
+    mapRows: (rows) =>
+      Object.fromEntries(
+        rows.map(({ id, ...row }) => [
+          id,
+          {
+            ...row,
+            has_recurrence_rules: Boolean(row.has_recurrence_rules),
+            is_all_day: Boolean(row.is_all_day),
+          },
+        ]),
+      ),
+  });
+  const { data: sessions = EMPTY_SESSIONS } = useLiveQuery<
+    TimelineSessionSqlRow,
+    Record<string, TimelineSessionRow>
+  >({
+    sql: `
+      SELECT
+        id,
+        title,
+        created_at,
+        event_json,
+        folder_path AS folder_id
+      FROM sessions
+      WHERE deleted_at IS NULL
+      ORDER BY created_at, id
+    `,
+    mapRows: (rows) =>
+      Object.fromEntries(rows.map(({ id, ...row }) => [id, row])),
+  });
+  const pendingDeletions = useUndoDelete((state) => state.pendingDeletions);
+  const timelineSessionsTable = useMemo(() => {
+    const pendingIds = Object.keys(pendingDeletions).filter(
+      (sessionId) => sessionId in sessions,
+    );
+    if (pendingIds.length === 0) return sessions;
+
+    const filtered = { ...sessions };
+    for (const sessionId of pendingIds) {
+      delete filtered[sessionId];
+    }
+    return filtered;
+  }, [pendingDeletions, sessions]);
+
+  return { timelineEventsTable, timelineSessionsTable };
 }
 
 function useDurableSharedNotes(_userId: string | undefined) {

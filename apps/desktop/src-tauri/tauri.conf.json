@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "zhnote Dev",
-  "mainBinaryName": "zhnote-dev",
-  "identifier": "com.zhnote.dev",
+  "productName": "Zhnote",
+  "mainBinaryName": "zhnote",
+  "identifier": "com.zhnote.app",
   "build": {
     "beforeDevCommand": "pnpm -F desktop dev",
     "devUrl": "http://localhost:1422",
@@ -54,7 +54,6 @@
     "deep-link": {
       "desktop": {
         "schemes": [
-          "zhnote-dev",
           "zhnote"
         ]
       }

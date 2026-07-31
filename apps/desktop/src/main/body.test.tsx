@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
     slotId: "slot-home",
     type: "empty",
   } as ({ type: string } & Record<string, unknown>) | null,
+  createNewMeeting: vi.fn(),
+  createNewNote: vi.fn(),
   leftsidebar: {
     expanded: true,
     setExpanded: vi.fn(),
@@ -229,7 +231,8 @@ vi.mock("~/shared/open-note-dialog", () => ({
 }));
 
 vi.mock("~/shared/useNewNote", () => ({
-  useNewNote: () => vi.fn(),
+  useNewNote: () => mocks.createNewNote,
+  useNewNoteAndListen: () => mocks.createNewMeeting,
 }));
 
 vi.mock("~/sidebar/timeline/upcoming-meeting", () => ({
@@ -269,6 +272,8 @@ describe("ClassicMainBody", () => {
       slotId: "slot-home",
       type: "empty",
     };
+    mocks.createNewMeeting.mockClear();
+    mocks.createNewNote.mockClear();
     mocks.leftsidebar.expanded = true;
     mocks.leftsidebar.setExpanded.mockClear();
     mocks.leftsidebar.toggleExpanded.mockClear();
@@ -776,6 +781,9 @@ describe("ClassicMainBody", () => {
 
     const searchButton = screen.getByRole("button", { name: "Search" });
     const newNoteButton = screen.getByRole("button", { name: "New note" });
+    const startMeetingButton = screen.getByRole("button", {
+      name: "Start meeting",
+    });
     const devtoolsButton = await screen.findByRole("button", {
       name: "Show devtools panel",
     });
@@ -784,6 +792,12 @@ describe("ClassicMainBody", () => {
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(newNoteButton.compareDocumentPosition(devtoolsButton)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(newNoteButton.compareDocumentPosition(startMeetingButton)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(startMeetingButton.compareDocumentPosition(devtoolsButton)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(devtoolsButton.parentElement).toBe(newNoteButton.parentElement);
@@ -817,6 +831,16 @@ describe("ClassicMainBody", () => {
     expect(
       await screen.findByRole("button", { name: "Show devtools panel" }),
     ).toBeTruthy();
+  });
+
+  it("keeps regular notes and meeting capture as separate entry points", () => {
+    render(<ClassicMainBody />);
+
+    fireEvent.click(screen.getByRole("button", { name: "New note" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start meeting" }));
+
+    expect(mocks.createNewNote).toHaveBeenCalledTimes(1);
+    expect(mocks.createNewMeeting).toHaveBeenCalledTimes(1);
   });
 
   it("hides the devtools button when the native panel is opened outside the sidebar", async () => {

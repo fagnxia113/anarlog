@@ -116,11 +116,17 @@ vi.mock("~/shared-notes/cache", () => ({
   useDurableSharedNotes: () => mocks.sharedNotes,
 }));
 
-vi.mock("~/calendar/queries", () => ({
-  useTimelineTables: () => ({
-    timelineEventsTable: mocks.timelineEventsTable,
-    timelineSessionsTable: mocks.timelineSessionsTable,
+vi.mock("~/db", () => ({
+  useLiveQuery: ({ sql }: { sql: string }) => ({
+    data: sql.includes("FROM events")
+      ? mocks.timelineEventsTable
+      : mocks.timelineSessionsTable,
   }),
+}));
+
+vi.mock("~/store/zustand/undo-delete", () => ({
+  useUndoDelete: (selector: (state: { pendingDeletions: {} }) => unknown) =>
+    selector({ pendingDeletions: {} }),
 }));
 
 vi.mock("~/session/hooks/useDeleteSession", () => ({
