@@ -8,6 +8,9 @@ use serde_json::json;
 use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 const SENSEVOICE_MODEL_NAME: &str = "sensevoice-small-q8.gguf";
 const FSMN_VAD_MODEL_NAME: &str = "fsmn-vad.gguf";
 const SENSEVOICE_MODEL_URLS: &[&str] = &[
@@ -21,6 +24,10 @@ const FSMN_VAD_MODEL_URLS: &[&str] = &[
 const SENSEVOICE_EXECUTABLE: &str = "llama-funasr-sensevoice.exe";
 const FFMPEG_EXECUTABLE: &str = "ffmpeg.exe";
 const MODEL_DOWNLOAD_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Zhiji/1.0";
+const ALIYUN_PYPI_INDEX: &str = "https://mirrors.aliyun.com/pypi/simple/";
+const OFFICIAL_PYPI_INDEX: &str = "https://pypi.org/simple";
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const PYTHON_EMBED_URL: &str = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip";
 const GET_PIP_URL: &str = "https://bootstrap.pypa.io/get-pip.py";
 
@@ -345,10 +352,33 @@ fn extract_zip(archive: &Path, destination: &Path) -> Result<(), String> {
 }
 
 fn run_python(python: &Path, arguments: &[&str], stage: &str) -> Result<(), String> {
-    let output = Command::new(python).args(arguments).output().map_err(app_error)?;
+    let mut command = Command::new(python);
+    command.args(arguments);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command.output().map_err(app_error)?;
     if output.status.success() { return Ok(()); }
     let error = String::from_utf8_lossy(&output.stderr);
-    Err(format!("{stage}失败：{}", error.trim()))
+    let standard_output = String::from_utf8_lossy(&output.stdout);
+    let details = if error.trim().is_empty() { standard_output.trim() } else { error.trim() };
+    Err(format!("{stage}失败：{details}"))
+}
+
+fn install_python_packages(python: &Path, packages: &[&str], index: &str, stage: &str) -> Result<(), String> {
+    let mut arguments = vec![
+        "-m", "pip", "install", "--disable-pip-version-check", "--no-input", "--prefer-binary",
+        "--retries", "12", "--resume-retries", "12", "--timeout", "90", "--index-url", index,
+    ];
+    arguments.extend_from_slice(packages);
+    run_python(python, &arguments, stage)
+}
+
+fn install_python_packages_with_fallback(python: &Path, packages: &[&str], stage: &str) -> Result<(), String> {
+    match install_python_packages(python, packages, ALIYUN_PYPI_INDEX, stage) {
+        Ok(()) => Ok(()),
+        Err(mirror_error) => install_python_packages(python, packages, OFFICIAL_PYPI_INDEX, stage)
+            .map_err(|official_error| format!("{official_error}\n\n国内镜像的首次尝试也失败：{mirror_error}")),
+    }
 }
 
 fn install_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf) -> Result<(), String> {
@@ -370,9 +400,8 @@ fn install_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf) -> Result<()
     if !get_pip.is_file() { download_file(GET_PIP_URL, &get_pip)?; }
     let get_pip_arg = get_pip.to_string_lossy().into_owned();
     run_python(&python, &[&get_pip_arg, "--disable-pip-version-check"], "准备会议引擎")?;
-    run_python(&python, &["-m", "pip", "install", "--disable-pip-version-check", "--upgrade", "pip"], "更新安装工具")?;
-    run_python(&python, &["-m", "pip", "install", "--disable-pip-version-check", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"], "安装本地计算组件")?;
-    run_python(&python, &["-m", "pip", "install", "--disable-pip-version-check", "funasr", "modelscope", "soundfile"], "安装说话人分离组件")?;
+    install_python_packages(&python, &["torch", "torchaudio"], "https://download.pytorch.org/whl/cpu", "安装本地计算组件")?;
+    install_python_packages_with_fallback(&python, &["funasr", "modelscope", "soundfile"], "安装说话人分离组件")?;
     fs::write(speaker_script(&engine_dir), include_str!("speaker_engine.py")).map_err(app_error)?;
     fs::write(speaker_marker(&engine_dir), "ready").map_err(app_error)?;
     Ok(())
