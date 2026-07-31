@@ -46,7 +46,7 @@
         "language": "en-US"
       },
       "webviewInstallMode": {
-        "type": "downloadBootstrapper"
+        "type": "embedBootstrapper"
       }
     }
   },

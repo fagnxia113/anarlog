@@ -111,9 +111,8 @@ fn parse_env_flag(value: String) -> Result<bool, String> {
 }
 
 fn desktop_db_dir(identifier: &str) -> Option<std::path::PathBuf> {
-    let data_dir = dirs::data_dir().expect("data_dir must be available");
-    let default_dir =
-        hypr_storage::global::compute_default_base(identifier).expect("data_dir must be available");
+    let data_dir = dirs::data_dir()?;
+    let default_dir = hypr_storage::global::compute_default_base(identifier)?;
     let identifier_dir = data_dir.join(identifier);
 
     if identifier_dir.join(DB_FILENAME).is_file() && !default_dir.join(DB_FILENAME).is_file() {

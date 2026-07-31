@@ -91,7 +91,7 @@ impl Builder {
                         .with(fmt::layer())
                         .with(fmt::layer().with_ansi(false).with_writer(file_writer))
                         .init();
-                    assert!(app.manage(guard));
+                    app.manage(guard);
                 } else {
                     tracing_subscriber::Registry::default()
                         .with(env_filter)
