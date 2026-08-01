@@ -92,6 +92,7 @@ type Processing =
   | "speakerTranscribing"
   | "importing"
   | "deleting"
+  | "autoTranscribing"
   | null;
 
 const emptyWorkspace: Workspace = {
@@ -163,6 +164,15 @@ export function App() {
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
   const recordingSecondsRef = useRef(0);
+  const asrStatusRef = useRef(asrStatus);
+  const speakerStatusRef = useRef(speakerStatus);
+
+  useEffect(() => {
+    asrStatusRef.current = asrStatus;
+  }, [asrStatus]);
+  useEffect(() => {
+    speakerStatusRef.current = speakerStatus;
+  }, [speakerStatus]);
 
   const reload = async () => {
     const next = await invoke<Workspace>("load_workspace");
@@ -386,7 +396,42 @@ export function App() {
               latest.meetings.find((meeting) => meeting.id === meetingId) ??
                 null,
             );
-            notify("录音已保存。下一步可点击“本地语音转写”。");
+
+            if (!asrStatusRef.current.installed) {
+              notify("录音已保存。请在设置中下载本地语音模型后再转写。");
+              return;
+            }
+
+            setProcessing("autoTranscribing");
+            try {
+              if (speakerStatusRef.current.installed) {
+                const meeting = await invoke<Meeting>(
+                  "transcribe_meeting_with_speakers",
+                  { meetingId },
+                );
+                setSelectedMeeting(meeting);
+                setSpeakerStatus((status) => ({
+                  ...status,
+                  modelsReady: true,
+                }));
+                notify("录音已保存，并自动完成转写与说话人区分。");
+              } else {
+                const meeting = await invoke<Meeting>("transcribe_meeting", {
+                  meetingId,
+                });
+                setSelectedMeeting(meeting);
+                notify(
+                  "录音已保存，并自动完成转写。可在设置中安装说话人引擎以区分发言人。",
+                );
+              }
+              await reload();
+            } catch (error) {
+              notify(
+                `自动转写失败：${String(error)}。可手动点击转写按钮重试。`,
+              );
+            } finally {
+              setProcessing(null);
+            }
           } catch (error) {
             notify(`保存录音失败：${String(error)}`);
           } finally {
@@ -770,10 +815,10 @@ function Home({
     <div className="page-grid home-grid">
       <section className="welcome-card">
         <div>
-          <span className="eyebrow">录音 · 本地转写 · 纪要 · 行动</span>
-          <h2>把一次会议，变成下一步行动。</h2>
+          <span className="eyebrow">录音即转写 · 智能纪要 · 行动</span>
+          <h2>点一下录音，说完就有纪要。</h2>
           <p>
-            会议录音、转写原文和笔记默认留在你的电脑。需要智能纪要时，再由你主动选择已配置的服务处理文字稿。
+            录音停止后自动本地转写并区分说话人，全程不上传音频。需要智能纪要时，再由你主动选择已配置的服务处理文字稿。
           </p>
         </div>
         <div className="welcome-actions">
@@ -999,8 +1044,13 @@ function Meetings({
                   正在录音 <strong>{duration(recordingSeconds)}</strong>
                   <button className="danger-button" onClick={onStop}>
                     <Square size={13} fill="currentColor" />
-                    结束录音
+                    结束录音并转写
                   </button>
+                </>
+              ) : processing === "autoTranscribing" ? (
+                <>
+                  <LoaderCircle size={17} className="spin" />
+                  <span>录音已保存，正在本地转写并区分说话人…</span>
                 </>
               ) : (
                 <>
@@ -1030,7 +1080,7 @@ function Meetings({
                     onClick={onRecord}
                   >
                     <Mic size={14} />
-                    开始录音
+                    录音并转写
                   </button>
                 </>
               )}
@@ -1104,23 +1154,31 @@ function AiWorkflow({
   onOpenSettings: () => void;
 }) {
   const speakerReady = speakerStatus.installed;
+  const autoTranscribing = processing === "autoTranscribing";
   return (
     <div className="ai-workflow">
       <div className="ai-flow-copy">
         <Sparkles size={18} />
         <span>
-          <strong>本地转写 · 发言人区分 · 智能纪要</strong>
+          <strong>录音即转写 · 智能纪要</strong>
           <small>
-            {processing === "installingSpeaker"
-              ? "首次安装约需 2–5 分钟；正在后台下载组件，请勿关闭知记。"
-              : asrStatus.installed
-                ? `基础转写模型已就绪；${speakerReady ? "说话人分离引擎已就绪。" : "可按需安装本地说话人分离引擎。"}`
-                : "请先在设置中下载本地中文语音模型。"}
+            {autoTranscribing
+              ? "录音已保存，正在本地转写并区分说话人，请稍候…"
+              : processing === "installingSpeaker"
+                ? "首次安装约需 2–5 分钟；正在后台下载组件，请勿关闭知记。"
+                : asrStatus.installed
+                  ? `录音停止后自动转写${speakerReady ? "并区分说话人" : ""}；${speakerReady ? "说话人分离引擎已就绪。" : "可在设置中安装说话人分离引擎。"}`
+                  : "请先在设置中下载本地中文语音模型，录音后即可自动转写。"}
           </small>
         </span>
       </div>
       <div className="ai-flow-actions">
-        {!asrStatus.installed ? (
+        {autoTranscribing ? (
+          <button className="secondary-button" disabled>
+            <LoaderCircle className="spin" size={15} />
+            正在自动转写…
+          </button>
+        ) : !asrStatus.installed ? (
           <button className="secondary-button" onClick={onOpenSettings}>
             下载本地模型
           </button>
@@ -1135,7 +1193,7 @@ function AiWorkflow({
             ) : (
               <Mic size={15} />
             )}
-            {processing === "transcribing" ? "正在本地转写" : "本地语音转写"}
+            {processing === "transcribing" ? "正在本地转写" : "重新转写"}
           </button>
         )}
         {speakerReady ? (
@@ -1152,7 +1210,7 @@ function AiWorkflow({
             {processing === "speakerTranscribing"
               ? "正在区分发言人"
               : speakerStatus.modelsReady
-                ? "区分发言人转写"
+                ? "重新区分说话人"
                 : "下载会议模型并区分"}
           </button>
         ) : (
@@ -1471,7 +1529,7 @@ function SettingsView({
         <div>
           <h2>语音识别在本机，智能纪要由你决定</h2>
           <p>
-            录音与语音转写始终在这台电脑完成。只有点击“生成智能纪要”时，才会把转写文字发送给你配置的服务；绝不会上传录音。
+            录音、自动转写与说话人区分始终在这台电脑完成。只有点击"生成智能纪要"时，才会把转写文字发送给你配置的服务；绝不会上传录音。
           </p>
         </div>
       </section>
