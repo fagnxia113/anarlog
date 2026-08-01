@@ -384,6 +384,58 @@ export async function removeHumanSpeakerAssignments(
   );
 }
 
+export async function mergeSpeakers(
+  sessionId: string,
+  fromHumanId: string,
+  toHumanId: string,
+): Promise<void> {
+  if (fromHumanId === toHumanId) return;
+
+  const transcripts = await liveQueryClient.execute<{ id: string }>(
+    `
+      SELECT id
+      FROM transcripts
+      WHERE session_id = ? AND deleted_at IS NULL
+      ORDER BY started_at_ms, created_at, id
+    `,
+    [sessionId],
+  );
+
+  await Promise.all(
+    transcripts.map((transcript) =>
+      mutateTranscript(transcript.id, (store) => {
+        const hints = parseTranscriptHints(store, transcript.id);
+        let changed = false;
+        const merged = hints.map((hint) => {
+          if (hint.type !== "user_speaker_assignment") {
+            return hint;
+          }
+          if (parseAssignedHumanId(hint.value) !== fromHumanId) {
+            return hint;
+          }
+          changed = true;
+          let parsed: Record<string, unknown> = {};
+          try {
+            parsed =
+              typeof hint.value === "string"
+                ? (JSON.parse(hint.value) as Record<string, unknown>)
+                : (hint.value as Record<string, unknown>);
+          } catch {
+            parsed = {};
+          }
+          return {
+            ...hint,
+            value: JSON.stringify({ ...parsed, human_id: toHumanId }),
+          };
+        });
+        if (changed) {
+          updateTranscriptHints(store, transcript.id, merged);
+        }
+      }),
+    ),
+  );
+}
+
 function mapTranscriptRow(row: TranscriptSqlRow): TranscriptRecord {
   return {
     id: row.id,

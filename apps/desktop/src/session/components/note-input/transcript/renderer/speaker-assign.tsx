@@ -11,6 +11,7 @@ import {
   PopoverTrigger,
 } from "@hypr/ui/components/ui/popover";
 import { cn } from "@hypr/utils";
+import { sonnerToast } from "@hypr/ui/components/ui/toast";
 
 import {
   addSessionParticipant,
@@ -18,23 +19,12 @@ import {
   useSessionParticipants,
 } from "~/session/queries";
 import type { Segment } from "~/stt/live-segment";
-import { assignTranscriptSpeaker } from "~/stt/queries";
-
-function useHumans(): Array<{ id: string; name: string; email: string }> {
-  return [];
-}
-
-async function createHuman(_params: {
-  ownerUserId: string;
-  name: string;
-  email?: string;
-}): Promise<string> {
-  return "";
-}
-
-function useSessionEventParticipants(_sessionId: string): EventParticipant[] {
-  return [];
-}
+import { assignTranscriptSpeaker, mergeSpeakers } from "~/stt/queries";
+import {
+  createHuman,
+  useHumans,
+  useSessionEventParticipants,
+} from "~/humans/queries";
 
 type AssignmentMode = "all" | "segment";
 
@@ -56,6 +46,8 @@ export function SpeakerAssignPopover({
   onAssigned?: (humanId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const currentHumanId = segment.key.speaker_human_id ?? null;
+  const { t } = useLingui();
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -85,6 +77,23 @@ export function SpeakerAssignPopover({
     [handleOpenChange, onAssigned, transcriptId, segment],
   );
 
+  const handleMerge = useCallback(
+    (toHumanId: string) => {
+      if (!sessionId || !currentHumanId || currentHumanId === toHumanId) return;
+      void mergeSpeakers(sessionId, currentHumanId, toHumanId)
+        .then(() => {
+          sonnerToast.success(t`Speakers merged`);
+          onAssigned?.(toHumanId);
+          handleOpenChange(false);
+        })
+        .catch((error) => {
+          console.error("[transcript] failed to merge speakers", error);
+          sonnerToast.error(t`Failed to merge speakers`);
+        });
+    },
+    [currentHumanId, handleOpenChange, onAssigned, sessionId, t],
+  );
+
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
@@ -109,7 +118,12 @@ export function SpeakerAssignPopover({
         collisionPadding={16}
         className="max-h-[min(var(--radix-popover-content-available-height),28rem)] w-80"
       >
-        <ParticipantList sessionId={sessionId} onSelect={handleAssign} />
+        <ParticipantList
+          sessionId={sessionId}
+          onSelect={handleAssign}
+          currentHumanId={currentHumanId}
+          onMerge={handleMerge}
+        />
       </PopoverContent>
     </Popover>
   );
@@ -290,9 +304,13 @@ export function buildEventSpeakerParticipantOptions({
 function ParticipantList({
   sessionId,
   onSelect,
+  currentHumanId,
+  onMerge,
 }: {
   sessionId: string | undefined;
   onSelect: (humanId: string, mode: AssignmentMode) => void;
+  currentHumanId: string | null;
+  onMerge: (toHumanId: string) => void;
 }) {
   const { t } = useLingui();
   const session = useSession(sessionId ?? "");
@@ -527,6 +545,26 @@ function ParticipantList({
             <Trans>Apply to all</Trans>
           </span>
         </label>
+        {currentHumanId ? (
+          <button
+            type="button"
+            className={cn([
+              "h-8 rounded-full px-3 text-xs font-medium",
+              "border border-border text-muted-foreground",
+              "hover:bg-accent hover:text-foreground",
+              "disabled:pointer-events-none disabled:opacity-50",
+            ])}
+            disabled={
+              !selectedOption ||
+              selectedOption.id === currentHumanId ||
+              Boolean(selectedOption.isNew) ||
+              assigning
+            }
+            onClick={() => selectedOption && onMerge(selectedOption.id)}
+          >
+            <Trans>Merge</Trans>
+          </button>
+        ) : null}
         <button
           type="button"
           className={cn([
