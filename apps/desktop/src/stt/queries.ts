@@ -12,6 +12,10 @@ import {
   collectAssignedHumanIdsFromTranscriptRows,
   type TranscriptRow,
 } from "~/stt/render-transcript";
+import {
+  SEGMENT_SPLIT_HINT_TYPE,
+  WORD_DELETED_HINT_TYPE,
+} from "~/stt/segment-edits";
 import type { SpeakerHintWithId, WordWithId } from "~/stt/types";
 import {
   applyLiveTranscriptDelta,
@@ -434,6 +438,240 @@ export async function mergeSpeakers(
       }),
     ),
   );
+}
+
+export function splitTranscriptSegment(
+  transcriptId: string,
+  anchorWordId: string,
+): Promise<void> {
+  if (!anchorWordId) {
+    return Promise.resolve();
+  }
+
+  return mutateTranscript(transcriptId, (store) => {
+    const hints = parseTranscriptHints(store, transcriptId);
+    const existing = hints.find(
+      (hint) =>
+        hint.type === SEGMENT_SPLIT_HINT_TYPE && hint.word_id === anchorWordId,
+    );
+    if (existing) return;
+
+    const newHint: SpeakerHintWithId = {
+      id: `${anchorWordId}:${SEGMENT_SPLIT_HINT_TYPE}`,
+      word_id: anchorWordId,
+      type: SEGMENT_SPLIT_HINT_TYPE,
+      value: "{}",
+    };
+    updateTranscriptHints(store, transcriptId, [...hints, newHint]);
+  });
+}
+
+export function mergeTranscriptSegmentWithNext(
+  transcriptId: string,
+  params: {
+    splitWordId: string;
+    targetHumanId: string | null;
+    secondSegmentWordIds: string[];
+    secondSegmentKey: SegmentKey;
+  },
+): Promise<void> {
+  return mutateTranscript(transcriptId, (store) => {
+    const hints = parseTranscriptHints(store, transcriptId);
+
+    const filtered = hints.filter(
+      (hint) =>
+        !(
+          hint.type === SEGMENT_SPLIT_HINT_TYPE &&
+          hint.word_id === params.splitWordId
+        ),
+    );
+
+    if (filtered.length !== hints.length) {
+      updateTranscriptHints(store, transcriptId, filtered);
+    }
+
+    if (
+      params.targetHumanId &&
+      params.secondSegmentWordIds.length > 0 &&
+      params.splitWordId
+    ) {
+      upsertSpeakerAssignment(
+        store,
+        transcriptId,
+        params.secondSegmentKey,
+        params.targetHumanId,
+        params.splitWordId,
+        {
+          mode: "segment",
+          wordIds: params.secondSegmentWordIds,
+        },
+      );
+    }
+  });
+}
+
+export function deleteTranscriptSegment(
+  transcriptId: string,
+  wordIds: string[],
+): Promise<void> {
+  if (wordIds.length === 0) {
+    return Promise.resolve();
+  }
+
+  return mutateTranscript(transcriptId, (store) => {
+    const hints = parseTranscriptHints(store, transcriptId);
+    const existingDeleted = new Set(
+      hints
+        .filter((hint) => hint.type === WORD_DELETED_HINT_TYPE)
+        .map((hint) => hint.word_id),
+    );
+
+    const newHints: SpeakerHintWithId[] = [];
+    for (const wordId of wordIds) {
+      if (!wordId || existingDeleted.has(wordId)) continue;
+      existingDeleted.add(wordId);
+      newHints.push({
+        id: `${wordId}:${WORD_DELETED_HINT_TYPE}`,
+        word_id: wordId,
+        type: WORD_DELETED_HINT_TYPE,
+        value: "{}",
+      });
+    }
+
+    if (newHints.length === 0) return;
+    updateTranscriptHints(store, transcriptId, [...hints, ...newHints]);
+  });
+}
+
+export async function saveTranscriptSnapshotIfMissing(
+  transcriptId: string,
+): Promise<void> {
+  return enqueueDatabaseWrite(`transcript:snapshot:${transcriptId}`, async () => {
+    const rows = await liveQueryClient.execute<{ metadata_json: string }>(
+      `
+        SELECT metadata_json
+        FROM transcripts
+        WHERE id = ? AND deleted_at IS NULL
+        LIMIT 1
+      `,
+      [transcriptId],
+    );
+    const current = rows[0];
+    if (!current) return;
+
+    let metadata: Record<string, unknown> = {};
+    try {
+      metadata = JSON.parse(current.metadata_json) as Record<string, unknown>;
+    } catch {
+      metadata = {};
+    }
+
+    if (metadata.original) return;
+
+    const snapshotRows = await liveQueryClient.execute<{
+      words_json: string;
+      speaker_hints_json: string;
+    }>(
+      `
+        SELECT words_json, speaker_hints_json
+        FROM transcripts
+        WHERE id = ? AND deleted_at IS NULL
+        LIMIT 1
+      `,
+      [transcriptId],
+    );
+    const snapshot = snapshotRows[0];
+    if (!snapshot) return;
+
+    const now = new Date().toISOString();
+    metadata.original = {
+      words_json: snapshot.words_json,
+      speaker_hints_json: snapshot.speaker_hints_json,
+      saved_at: now,
+    };
+
+    await executeTransaction([
+      {
+        sql: `
+          UPDATE transcripts
+          SET metadata_json = ?, updated_at = ?
+          WHERE id = ? AND deleted_at IS NULL
+        `,
+        params: [JSON.stringify(metadata), now, transcriptId],
+      },
+    ]);
+  });
+}
+
+export async function restoreOriginalTranscript(
+  transcriptId: string,
+): Promise<void> {
+  return enqueueDatabaseWrite(`transcript:restore:${transcriptId}`, async () => {
+    const rows = await liveQueryClient.execute<{ metadata_json: string }>(
+      `
+        SELECT metadata_json
+        FROM transcripts
+        WHERE id = ? AND deleted_at IS NULL
+        LIMIT 1
+      `,
+      [transcriptId],
+    );
+    const current = rows[0];
+    if (!current) return;
+
+    let metadata: Record<string, unknown> = {};
+    try {
+      metadata = JSON.parse(current.metadata_json) as Record<string, unknown>;
+    } catch {
+      metadata = {};
+    }
+
+    const original = metadata.original as
+      | { words_json: string; speaker_hints_json: string }
+      | undefined;
+    if (!original) return;
+
+    const now = new Date().toISOString();
+    await executeTransaction([
+      {
+        sql: `
+          UPDATE transcripts
+          SET words_json = ?,
+              speaker_hints_json = ?,
+              metadata_json = ?,
+              updated_at = ?
+          WHERE id = ? AND deleted_at IS NULL
+        `,
+        params: [
+          original.words_json,
+          original.speaker_hints_json,
+          "{}",
+          now,
+          transcriptId,
+        ],
+      },
+    ]);
+  });
+}
+
+export function useTranscriptHasEdits(transcriptId: string): boolean {
+  const { data = false } = useLiveQuery<{ c: number }, boolean>({
+    sql: `
+      SELECT COUNT(*) AS c
+      FROM transcripts, json_each(transcripts.speaker_hints_json)
+      WHERE transcripts.id = ?
+        AND transcripts.deleted_at IS NULL
+        AND json_extract(json_each.value, '$.type') IN (?, ?)
+    `,
+    params: [
+      transcriptId,
+      SEGMENT_SPLIT_HINT_TYPE,
+      WORD_DELETED_HINT_TYPE,
+    ],
+    enabled: Boolean(transcriptId),
+    mapRows: (rows) => (rows[0]?.c ?? 0) > 0,
+  });
+  return transcriptId ? data : false;
 }
 
 function mapTranscriptRow(row: TranscriptSqlRow): TranscriptRecord {

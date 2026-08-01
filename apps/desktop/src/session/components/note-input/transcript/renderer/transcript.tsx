@@ -24,9 +24,14 @@ import {
   type Segment,
   type SegmentWord,
 } from "~/stt/live-segment";
+import { applyUserSegmentEdits } from "~/stt/segment-edits";
 import { useTranscript, useTranscriptLabelContext } from "~/stt/queries";
 import { SpeakerLabelManager } from "~/stt/segment/shared";
 import { isTranscriptWordSeekable } from "~/stt/timing";
+
+import type { SegmentEditHint } from "~/stt/segment-edits";
+
+const EMPTY_EDIT_HINTS: readonly SegmentEditHint[] = [];
 
 export function RenderTranscript({
   scrollElement,
@@ -144,10 +149,20 @@ function TranscriptSegments({
   audioExists: boolean;
   maxSpeakerNumber?: number;
 }) {
-  const segments = useStableSegments(rawSegments);
-  const offsetMs = useTranscriptOffset(transcriptId);
   const transcript = useTranscript(transcriptId);
   const labelContext = useTranscriptLabelContext(transcriptId);
+
+  const editedSegments = useMemo(
+    () =>
+      applyUserSegmentEdits(
+        rawSegments,
+        transcript?.speakerHints ?? EMPTY_EDIT_HINTS,
+      ),
+    [rawSegments, transcript?.speakerHints],
+  );
+
+  const segments = useStableSegments(editedSegments);
+  const offsetMs = useTranscriptOffset(transcriptId);
 
   if (segments.length === 0) {
     return null;
@@ -294,6 +309,7 @@ const SegmentsList = memo(
               seekAndPlay={seekAndPlay}
               audioExists={audioExists}
               search={transcriptSearch}
+              nextSegment={segments[index + 1]}
             />
           </div>
         ))}

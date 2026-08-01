@@ -1,4 +1,4 @@
-import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, RotateCcw } from "lucide-react";
 import {
   type RefObject,
   useCallback,
@@ -7,8 +7,10 @@ import {
   useState,
 } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
+import { useLingui } from "@lingui/react/macro";
 
 import { cn } from "@hypr/utils";
+import { sonnerToast } from "@hypr/ui/components/ui/toast";
 
 import { SelectionMenu } from "./selection-menu";
 import { TranscriptSeparator } from "./separator";
@@ -22,6 +24,10 @@ import {
 import { useAudioPlayer } from "~/audio-player";
 import { useAudioTime } from "~/audio-player/provider";
 import type { Segment } from "~/stt/live-segment";
+import {
+  restoreOriginalTranscript,
+  useTranscriptHasEdits,
+} from "~/stt/queries";
 
 const LIVE_TRANSCRIPT_PLACEHOLDER_ID = "__live-transcript__";
 
@@ -109,6 +115,30 @@ export function TranscriptViewer({
     }
   };
 
+  const { t } = useLingui();
+  const firstRealTranscriptId = transcriptIds[0] ?? "";
+  const hasEdits = useTranscriptHasEdits(firstRealTranscriptId);
+
+  const handleRestore = useCallback(() => {
+    if (!firstRealTranscriptId) return;
+    if (
+      !window.confirm(
+        t`Restore original transcript? All segment edits will be lost.`,
+      )
+    ) {
+      return;
+    }
+
+    void restoreOriginalTranscript(firstRealTranscriptId)
+      .then(() => {
+        sonnerToast.success(t`Transcript restored to original`);
+      })
+      .catch((error) => {
+        console.error("[transcript] failed to restore original", error);
+        sonnerToast.error(t`Failed to restore transcript`);
+      });
+  }, [firstRealTranscriptId, t]);
+
   return (
     <div className="relative h-full">
       <div
@@ -150,6 +180,23 @@ export function TranscriptViewer({
           onAction={handleSelectionAction}
         />
       </div>
+
+      {hasEdits && (
+        <button
+          type="button"
+          onClick={handleRestore}
+          title={t`Restore original transcript`}
+          className={cn([
+            "absolute top-2 left-2 z-40",
+            "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs",
+            "border-border/60 bg-muted/70 text-foreground border",
+            "hover:bg-muted/90 transition-colors",
+          ])}
+        >
+          <RotateCcw size={12} />
+          <span>{t`Restore`}</span>
+        </button>
+      )}
 
       {canScroll && (
         <div

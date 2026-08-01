@@ -50,6 +50,7 @@ export const SegmentRenderer = memo(
     seekAndPlay,
     audioExists,
     search,
+    nextSegment,
   }: {
     segment: Segment;
     offsetMs: number;
@@ -60,6 +61,7 @@ export const SegmentRenderer = memo(
     seekAndPlay: (word: SegmentWord) => void;
     audioExists: boolean;
     search: TranscriptSearchRenderState;
+    nextSegment?: Segment;
   }) => {
     const lines = useMemo(
       () => groupWordsIntoLines(segment.words),
@@ -87,12 +89,13 @@ export const SegmentRenderer = memo(
     }, [search.caseSensitive, search.query, search.wholeWord, segment.words]);
 
     return (
-      <section>
+      <section className="group/segment">
         <SegmentHeader
           segment={segment}
           transcriptId={transcriptId}
           sessionId={sessionId}
           label={speakerLabel}
+          nextSegment={nextSegment}
         />
 
         <div
@@ -152,7 +155,8 @@ export const SegmentRenderer = memo(
       prev.sessionId !== next.sessionId ||
       prev.speakerLabel !== next.speakerLabel ||
       prev.audioExists !== next.audioExists ||
-      prev.seekAndPlay !== next.seekAndPlay
+      prev.seekAndPlay !== next.seekAndPlay ||
+      prev.nextSegment !== next.nextSegment
     ) {
       return false;
     }

@@ -1,5 +1,6 @@
 import { cn } from "@hypr/utils";
 
+import { SegmentToolbar } from "./segment-toolbar";
 import { SpeakerAssignPopover } from "./speaker-assign";
 import { useSegmentColorVars } from "./utils";
 
@@ -10,11 +11,13 @@ export function SegmentHeader({
   transcriptId,
   sessionId,
   label,
+  nextSegment,
 }: {
   segment: Segment;
   transcriptId: string;
   sessionId?: string;
   label: string;
+  nextSegment?: Segment;
 }) {
   const colorVars = useSegmentColorVars(segment.key);
   const headerClassName = cn([
@@ -35,6 +38,13 @@ export function SegmentHeader({
         color="var(--segment-color)"
         label={label}
       />
+      <div className="ml-auto">
+        <SegmentToolbar
+          segment={segment}
+          transcriptId={transcriptId}
+          nextSegment={nextSegment}
+        />
+      </div>
     </div>
   );
 }
