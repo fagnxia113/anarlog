@@ -683,6 +683,7 @@ export function App() {
           <Meetings
             meetings={filteredMeetings}
             meeting={selectedMeeting}
+            tasks={workspace.tasks}
             onSelect={setSelectedMeeting}
             onCreate={() => void createMeeting()}
             onChange={setSelectedMeeting}
@@ -690,6 +691,7 @@ export function App() {
             onDelete={() => void deleteMeeting()}
             onImport={() => void importMeetingAudio()}
             onTask={() => void addTask("meeting", selectedMeeting?.id ?? null)}
+            onToggleTask={(task) => void toggleTask(task)}
             recording={recording}
             recordingSeconds={recordingSeconds}
             onRecord={() => void startRecording()}
@@ -816,6 +818,34 @@ function Home({
   return (
     <div className="page-grid home-grid">
       <section className="welcome-card">
+        <svg
+          className="welcome-wave"
+          viewBox="0 0 280 180"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <g fill="white">
+            {[
+              { x: 8, r: 0.16 }, { x: 28, r: 0.34 }, { x: 48, r: 0.55 },
+              { x: 68, r: 0.78 }, { x: 88, r: 0.46 }, { x: 108, r: 0.92 },
+              { x: 128, r: 0.64 }, { x: 148, r: 0.98 }, { x: 168, r: 0.7 },
+              { x: 188, r: 0.84 }, { x: 208, r: 0.5 }, { x: 228, r: 0.6 },
+              { x: 248, r: 0.32 }, { x: 268, r: 0.2 },
+            ].map(({ x, r }, i) => {
+              const h = r * 168;
+              return (
+                <rect
+                  key={i}
+                  x={x}
+                  y={(180 - h) / 2}
+                  width="6"
+                  height={h}
+                  rx="3"
+                />
+              );
+            })}
+          </g>
+        </svg>
         <div>
           <span className="eyebrow">录音即转写 · 智能纪要 · 行动</span>
           <h2>点一下录音，说完就有纪要。</h2>
@@ -839,13 +869,20 @@ function Home({
           icon={<UsersRound />}
           label="全部会议"
           value={workspace.meetings.length}
+          tone="brand"
         />
         <Stat
           icon={<NotebookPen />}
           label="全部笔记"
           value={workspace.notes.length}
+          tone="info"
         />
-        <Stat icon={<CheckCircle2 />} label="待完成" value={openTasks.length} />
+        <Stat
+          icon={<CheckCircle2 />}
+          label="待完成"
+          value={openTasks.length}
+          tone="warning"
+        />
       </section>
       <section className="panel recent-panel">
         <div className="panel-title">
@@ -909,14 +946,16 @@ function Stat({
   icon,
   label,
   value,
+  tone = "brand",
 }: {
   icon: ReactNode;
   label: string;
   value: number;
+  tone?: "brand" | "info" | "warning";
 }) {
   return (
     <div className="stat-card">
-      <span>{icon}</span>
+      <span className={tone}>{icon}</span>
       <div>
         <strong>{value}</strong>
         <small>{label}</small>
@@ -928,6 +967,7 @@ function Stat({
 function Meetings({
   meetings,
   meeting,
+  tasks,
   onSelect,
   onCreate,
   onChange,
@@ -935,6 +975,7 @@ function Meetings({
   onDelete,
   onImport,
   onTask,
+  onToggleTask,
   recording,
   recordingSeconds,
   onRecord,
@@ -951,6 +992,7 @@ function Meetings({
 }: {
   meetings: Meeting[];
   meeting: Meeting | null;
+  tasks: Task[];
   onSelect: (meeting: Meeting) => void;
   onCreate: () => void;
   onChange: (meeting: Meeting) => void;
@@ -958,6 +1000,7 @@ function Meetings({
   onDelete: () => void;
   onImport: () => void;
   onTask: () => void;
+  onToggleTask: (task: Task) => void;
   recording: boolean;
   recordingSeconds: number;
   onRecord: () => void;
@@ -972,6 +1015,35 @@ function Meetings({
   onInstallSpeaker: () => void;
   onOpenSettings: () => void;
 }) {
+  // 音文联动：seekRequest 用于点击说话人段落后跳转音频时间，currentMs 用于高亮当前播放段落
+  const [seekRequest, setSeekRequest] = useState<{ time: number; nonce: number } | null>(null);
+  const [currentMs, setCurrentMs] = useState(-1);
+  // 会议详情页 Tab 状态（保留在父级，避免切 Tab 丢状态；AudioPlayer 在 sticky 顶部不进 Tab）
+  const [activeTab, setActiveTab] = useState<"minutes" | "transcript" | "speakers" | "tasks">(
+    "minutes",
+  );
+
+  // 解析说话人段数用于 Tab 计数徽章
+  const speakerSegments = useMemo<SpeakerSegment[]>(() => {
+    if (!meeting?.speakerSegments) return [];
+    try {
+      return JSON.parse(meeting.speakerSegments) as SpeakerSegment[];
+    } catch {
+      return [];
+    }
+  }, [meeting?.speakerSegments]);
+
+  // 本会议关联待办
+  const meetingTasks = useMemo(
+    () =>
+      meeting
+        ? tasks.filter(
+            (task) => task.sourceType === "meeting" && task.sourceId === meeting.id,
+          )
+        : [],
+    [tasks, meeting],
+  );
+
   return (
     <div className="split-layout">
       <section className="list-pane">
@@ -1016,9 +1088,11 @@ function Meetings({
                     onChange({ ...meeting, title: event.target.value })
                   }
                 />
-                <small>
-                  {dateTime(meeting.startedAt)} · {meeting.status}
-                </small>
+                <div className="meeting-meta">
+                  <span>{dateTime(meeting.startedAt)}</span>
+                  <span>·</span>
+                  <StatusBadge status={meeting.status} />
+                </div>
               </div>
               <div className="editor-buttons">
                 <button
@@ -1039,10 +1113,16 @@ function Meetings({
                 </button>
               </div>
             </div>
-            <div className="recording-bar">
+            <div className={`recording-bar ${recording ? "recording" : ""}`}>
               {recording ? (
                 <>
-                  <span className="recording-dot" />
+                  <span className="recording-wave">
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                  </span>
                   正在录音 <strong>{duration(recordingSeconds)}</strong>
                   <button className="danger-button" onClick={onStop}>
                     <Square size={13} fill="currentColor" />
@@ -1087,44 +1167,146 @@ function Meetings({
                 </>
               )}
             </div>
-            {!recording && meeting.audioPath ? (
-              <AudioPlayer meetingId={meeting.id} audioPath={meeting.audioPath} />
-            ) : null}
-            <AiWorkflow
-              meeting={meeting}
-              asrStatus={asrStatus}
-              speakerStatus={speakerStatus}
-              aiConfigured={aiConfigured}
-              processing={processing}
-              onTranscribe={onTranscribe}
-              onTranscribeWithSpeakers={onTranscribeWithSpeakers}
-              onAnalyze={onAnalyze}
-              onInstallSpeaker={onInstallSpeaker}
-              onOpenSettings={onOpenSettings}
-            />
-            <SpeakerTimeline segments={meeting.speakerSegments} />
-            <div className="meeting-editor">
-              <EditorField
-                label="会议纪要"
-                hint="智能分析会生成主题、关键讨论、结论、风险与下一步"
-                value={meeting.minutes}
-                onChange={(minutes) => onChange({ ...meeting, minutes })}
-                placeholder="可手动记录，或点击智能纪要生成…"
+            {/* sticky 播放器 + AI 工作流：始终常驻 DOM，不进 Tab，保证音文联动不中断 */}
+            <div className="sticky-player-bar">
+              {!recording && meeting.audioPath ? (
+                <AudioPlayer
+                  meetingId={meeting.id}
+                  audioPath={meeting.audioPath}
+                  seekRequest={seekRequest}
+                  onTimeUpdate={(seconds) => setCurrentMs(seconds * 1000)}
+                />
+              ) : null}
+              <AiWorkflow
+                meeting={meeting}
+                asrStatus={asrStatus}
+                speakerStatus={speakerStatus}
+                aiConfigured={aiConfigured}
+                processing={processing}
+                onTranscribe={onTranscribe}
+                onTranscribeWithSpeakers={onTranscribeWithSpeakers}
+                onAnalyze={onAnalyze}
+                onInstallSpeaker={onInstallSpeaker}
+                onOpenSettings={onOpenSettings}
               />
-              <EditorField
-                label="决策与共识"
-                hint="只保留明确决定；不确定项会标记待确认"
-                value={meeting.decisions}
-                onChange={(decisions) => onChange({ ...meeting, decisions })}
-                placeholder="例如：下周三前交付第一版原型"
-              />
-              <EditorField
-                label="原始记录 / 转写稿"
-                hint="本地语音转写会写入这里；也可以粘贴文字记录"
-                value={meeting.transcript}
-                onChange={(transcript) => onChange({ ...meeting, transcript })}
-                placeholder="在这里保留完整上下文…"
-              />
+            </div>
+            {/* 会议详情 Tabs：4 个 Tab 组织纪要/原文/说话人/待办 */}
+            <div className="meeting-tabs">
+              <div className="tab-bar">
+                <button
+                  className={`tab-item ${activeTab === "minutes" ? "active" : ""}`}
+                  onClick={() => setActiveTab("minutes")}
+                >
+                  智能纪要
+                </button>
+                <button
+                  className={`tab-item ${activeTab === "transcript" ? "active" : ""}`}
+                  onClick={() => setActiveTab("transcript")}
+                >
+                  原文转写
+                  <span className="count-pill">{meeting.transcript.length}</span>
+                </button>
+                <button
+                  className={`tab-item ${activeTab === "speakers" ? "active" : ""}`}
+                  onClick={() => setActiveTab("speakers")}
+                >
+                  说话人时间线
+                  <span className="count-pill">{speakerSegments.length}</span>
+                </button>
+                <button
+                  className={`tab-item ${activeTab === "tasks" ? "active" : ""}`}
+                  onClick={() => setActiveTab("tasks")}
+                >
+                  决策与待办
+                  <span className="count-pill">{meetingTasks.length}</span>
+                </button>
+              </div>
+              <div className="tab-panel" key={activeTab}>
+                {activeTab === "minutes" && (
+                  <div className="tab-panel-doc">
+                    {meeting.minutes.trim() || aiConfigured ? (
+                      <EditorField
+                        label="会议纪要"
+                        hint="智能分析会生成主题、关键讨论、结论、风险与下一步"
+                        value={meeting.minutes}
+                        onChange={(minutes) => onChange({ ...meeting, minutes })}
+                        placeholder="可手动记录，或点击上方「生成智能纪要」…"
+                      />
+                    ) : (
+                      <div className="tab-panel-empty">
+                        点击上方「生成智能纪要」，AI 会基于转写稿自动生成结构化纪要。
+                      </div>
+                    )}
+                  </div>
+                )}
+                {activeTab === "transcript" && (
+                  <EditorField
+                    label="原始记录 / 转写稿"
+                    hint="本地语音转写会写入这里；也可以粘贴文字记录"
+                    value={meeting.transcript}
+                    onChange={(transcript) => onChange({ ...meeting, transcript })}
+                    placeholder="录音转写后会显示在这里…"
+                  />
+                )}
+                {activeTab === "speakers" &&
+                  (speakerSegments.length > 0 ? (
+                    <SpeakerTimeline
+                      segments={meeting.speakerSegments}
+                      currentMs={currentMs}
+                      onSeek={(ms) =>
+                        setSeekRequest({ time: ms / 1000, nonce: Date.now() })
+                      }
+                    />
+                  ) : (
+                    <div className="tab-panel-empty">
+                      转写并区分说话人后，这里会显示带发言人的时间线。
+                    </div>
+                  ))}
+                {activeTab === "tasks" && (
+                  <div className="meeting-editor">
+                    <EditorField
+                      label="决策与共识"
+                      hint="只保留明确决定；不确定项会标记待确认"
+                      value={meeting.decisions}
+                      onChange={(decisions) => onChange({ ...meeting, decisions })}
+                      placeholder="例如：下周三前交付第一版原型"
+                    />
+                    <div>
+                      <div className="section-heading">
+                        <h3>本会议待办</h3>
+                        <button className="secondary-button compact-button" onClick={onTask}>
+                          <Plus size={14} />
+                          添加
+                        </button>
+                      </div>
+                      {meetingTasks.length > 0 ? (
+                        <section className="task-group">
+                          {meetingTasks.map((task) => (
+                            <label
+                              className={`task-row ${task.completed ? "done" : ""}`}
+                              key={task.id}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={task.completed}
+                                onChange={() => onToggleTask(task)}
+                              />
+                              <span className="checkmark">
+                                {task.completed && <Check size={13} />}
+                              </span>
+                              <span>{task.title}</span>
+                            </label>
+                          ))}
+                        </section>
+                      ) : (
+                        <div className="tab-panel-empty">
+                          智能纪要生成后会自动提取行动项到这里。也可以手动添加。
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </>
         ) : (
@@ -1160,6 +1342,10 @@ function AiWorkflow({
 }) {
   const speakerReady = speakerStatus.installed;
   const autoTranscribing = processing === "autoTranscribing";
+  const transcribing =
+    processing === "transcribing" || processing === "speakerTranscribing";
+  // 统一工作流：装了说话人引擎就一起做转写+分离，没装就只做转写
+  const handleTranscribe = speakerReady ? onTranscribeWithSpeakers : onTranscribe;
   return (
     <div className="ai-workflow">
       <div className="ai-flow-copy">
@@ -1171,9 +1357,15 @@ function AiWorkflow({
               ? "录音已保存，正在本地转写并区分说话人，请稍候…"
               : processing === "installingSpeaker"
                 ? "首次安装约需 2–5 分钟；正在后台下载组件，请勿关闭知记。"
-                : asrStatus.installed
-                  ? `录音停止后自动转写${speakerReady ? "并区分说话人" : ""}；${speakerReady ? "说话人分离引擎已就绪。" : "可在设置中安装说话人分离引擎。"}`
-                  : "请先在设置中下载本地中文语音模型，录音后即可自动转写。"}
+                : transcribing
+                  ? speakerReady
+                    ? "正在本地转写并区分说话人…"
+                    : "正在本地转写…"
+                  : asrStatus.installed
+                    ? speakerReady
+                      ? "点击「开始转写」会一次性完成转写与说话人分离。"
+                      : "点击「开始转写」即可；安装说话人引擎后会同时区分发言人。"
+                    : "请先在设置中下载本地中文语音模型，录音后即可自动转写。"}
           </small>
         </span>
       </div>
@@ -1191,34 +1383,26 @@ function AiWorkflow({
           <button
             className="secondary-button"
             disabled={!meeting.audioPath || processing !== null}
-            onClick={onTranscribe}
+            onClick={handleTranscribe}
+            title={
+              speakerReady
+                ? "一次性完成转写与说话人分离"
+                : "本地转写；安装说话人引擎后会同时区分发言人"
+            }
           >
-            {processing === "transcribing" ? (
+            {transcribing ? (
               <LoaderCircle className="spin" size={15} />
             ) : (
               <Mic size={15} />
             )}
-            {processing === "transcribing" ? "正在本地转写" : "重新转写"}
+            {transcribing
+              ? "正在转写…"
+              : speakerReady
+                ? "开始转写（含说话人分离）"
+                : "开始转写"}
           </button>
         )}
-        {speakerReady ? (
-          <button
-            className="secondary-button"
-            disabled={!meeting.audioPath || processing !== null}
-            onClick={onTranscribeWithSpeakers}
-          >
-            {processing === "speakerTranscribing" ? (
-              <LoaderCircle className="spin" size={15} />
-            ) : (
-              <UsersRound size={15} />
-            )}
-            {processing === "speakerTranscribing"
-              ? "正在区分发言人"
-              : speakerStatus.modelsReady
-                ? "重新区分说话人"
-                : "下载会议模型并区分"}
-          </button>
-        ) : (
+        {!speakerReady && asrStatus.installed && !autoTranscribing ? (
           <button
             className="secondary-button"
             disabled={processing !== null}
@@ -1233,7 +1417,7 @@ function AiWorkflow({
               ? "正在安装（请稍候）"
               : "安装说话人引擎"}
           </button>
-        )}
+        ) : null}
         {!aiConfigured ? (
           <button
             className="primary-button"
@@ -1276,15 +1460,23 @@ function formatTime(seconds: number) {
 function AudioPlayer({
   meetingId,
   audioPath,
+  seekRequest,
+  onTimeUpdate,
 }: {
   meetingId: string;
   audioPath: string;
+  seekRequest: { time: number; nonce: number } | null;
+  onTimeUpdate: (seconds: number) => void;
 }) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPos, setCurrentPos] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
+  const [waitingForMetadata, setWaitingForMetadata] = useState<{
+    time: number;
+    nonce: number;
+  } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -1295,11 +1487,34 @@ function AudioPlayer({
     setLoading(true);
     setCurrentPos(0);
     setIsPlaying(false);
+    setWaitingForMetadata(null);
     void invoke<string>("read_recording", { meetingId })
       .then((url) => setAudioUrl(url))
       .catch(() => setAudioUrl(null))
       .finally(() => setLoading(false));
   }, [meetingId, audioPath]);
+
+  // 音文联动：收到 seekRequest 后跳转播放位置并自动播放
+  useEffect(() => {
+    if (!seekRequest) return;
+    const audio = audioRef.current;
+    if (!audio || !audioUrl) return;
+    if (!Number.isFinite(totalDuration) || totalDuration <= 0) {
+      // 元数据尚未加载完成，先记下目标时间，等 onLoadedMetadata 触发后再应用
+      setWaitingForMetadata(seekRequest);
+      return;
+    }
+    const target = Math.max(
+      0,
+      Math.min(totalDuration, seekRequest.time),
+    );
+    audio.currentTime = target;
+    setCurrentPos(target);
+    onTimeUpdate(target);
+    void audio.play().catch(() => {
+      // 浏览器可能拒绝自动播放，忽略错误；用户可手动点击播放
+    });
+  }, [seekRequest, audioUrl, totalDuration, onTimeUpdate]);
 
   const togglePlay = () => {
     const audio = audioRef.current;
@@ -1319,6 +1534,31 @@ function AudioPlayer({
     audio.currentTime = ratio * totalDuration;
   };
 
+  const handleTimeUpdate = (event: React.SyntheticEvent<HTMLAudioElement>) => {
+    const seconds = event.currentTarget.currentTime;
+    setCurrentPos(seconds);
+    onTimeUpdate(seconds);
+  };
+
+  const handleLoadedMetadata = (
+    event: React.SyntheticEvent<HTMLAudioElement>,
+  ) => {
+    const duration = event.currentTarget.duration;
+    setTotalDuration(duration);
+    // 处理等待元数据时挂起的跳转请求
+    if (waitingForMetadata) {
+      const target = Math.max(0, Math.min(duration, waitingForMetadata.time));
+      const audio = audioRef.current;
+      if (audio) {
+        audio.currentTime = target;
+        setCurrentPos(target);
+        onTimeUpdate(target);
+        void audio.play().catch(() => undefined);
+      }
+      setWaitingForMetadata(null);
+    }
+  };
+
   const progress = totalDuration > 0 ? (currentPos / totalDuration) * 100 : 0;
 
   return (
@@ -1328,8 +1568,8 @@ function AudioPlayer({
         src={audioUrl ?? undefined}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
-        onTimeUpdate={(e) => setCurrentPos(e.currentTarget.currentTime)}
-        onLoadedMetadata={(e) => setTotalDuration(e.currentTarget.duration)}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
         onEnded={() => setIsPlaying(false)}
       />
       <button
@@ -1354,7 +1594,15 @@ function AudioPlayer({
   );
 }
 
-function SpeakerTimeline({ segments }: { segments: string }) {
+function SpeakerTimeline({
+  segments,
+  currentMs,
+  onSeek,
+}: {
+  segments: string;
+  currentMs: number;
+  onSeek: (ms: number) => void;
+}) {
   let items: SpeakerSegment[] = [];
   try {
     items = JSON.parse(segments) as SpeakerSegment[];
@@ -1366,20 +1614,49 @@ function SpeakerTimeline({ segments }: { segments: string }) {
     <section className="speaker-timeline">
       <div>
         <h3>说话人时间线</h3>
-        <small>发言人编号由本地声纹聚类生成，可用于追溯“谁说了什么”。</small>
+        <small>
+          点击任意段落即可跳转到对应录音时间点；播放时当前段落会高亮。
+        </small>
       </div>
-      {items.map((item, index) => (
-        <div className="speaker-row" key={`${item.startMs}-${index}`}>
-          <span>{item.speaker}</span>
-          <small>
-            {duration(Math.floor(item.startMs / 1000))}–
-            {duration(Math.floor(item.endMs / 1000))}
-          </small>
-          <p>{item.text}</p>
-        </div>
-      ))}
+      {items.map((item, index) => {
+        const active =
+          currentMs >= 0 && currentMs >= item.startMs && currentMs < item.endMs;
+        return (
+          <button
+            type="button"
+            className={`speaker-row ${active ? "active" : ""}`}
+            key={`${item.startMs}-${index}`}
+            onClick={() => onSeek(item.startMs)}
+            title={`跳转到 ${duration(Math.floor(item.startMs / 1000))}`}
+          >
+            <span>{item.speaker}</span>
+            <small>
+              {duration(Math.floor(item.startMs / 1000))}–
+              {duration(Math.floor(item.endMs / 1000))}
+            </small>
+            <p>{item.text}</p>
+          </button>
+        );
+      })}
     </section>
   );
+}
+
+// 状态徽章：根据会议 status 字符串返回对应配色的 pill
+function StatusBadge({ status }: { status: string }) {
+  let cls = "neutral";
+  if (status.includes("区分") || status.includes("发言人")) {
+    cls = "brand";
+  } else if (status.includes("纪要") || status.includes("分析")) {
+    cls = "success";
+  } else if (status.includes("转写")) {
+    cls = "info";
+  } else if (status.includes("录音") || status.includes("导入")) {
+    cls = "info";
+  } else if (status === "草稿") {
+    cls = "neutral";
+  }
+  return <span className={`status-badge ${cls}`}>{status}</span>;
 }
 
 function Notes({
@@ -1630,6 +1907,7 @@ function SettingsView({
           </p>
         </div>
       </section>
+      <h3 className="settings-section-title">智能引擎</h3>
       <section className="settings-card ai-settings">
         <div>
           <h3>本地中文语音模型</h3>
@@ -1727,6 +2005,7 @@ function SettingsView({
           )}
         </div>
       </section>
+      <h3 className="settings-section-title">数据与备份</h3>
       <section className="settings-card">
         <div>
           <h3>笔记本</h3>

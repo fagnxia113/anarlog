@@ -25,6 +25,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/main.tsx", "src/zhnote", "src/vite-env.d.ts"],
+  "include": ["src/main.tsx", "src/zhiji", "src/vite-env.d.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

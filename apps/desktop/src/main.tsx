@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./zhiji/App";
-import "./zhiji/styles.css";
+import "./zhiji/styles/index.css";
 
 const root = document.getElementById("root");
 
