@@ -758,6 +758,31 @@ fn save_recording(state: State<'_, AppState>, meeting_id: String, data_url: Stri
     Ok(path_string)
 }
 
+fn audio_mime_type(path: &str) -> &'static str {
+    let ext = path.rsplit('.').next().map(|e| e.to_ascii_lowercase());
+    match ext.as_deref() {
+        Some("webm") => "audio/webm",
+        Some("mp3") => "audio/mpeg",
+        Some("wav") => "audio/wav",
+        Some("m4a") | Some("mp4") => "audio/mp4",
+        Some("aac") => "audio/aac",
+        Some("flac") => "audio/flac",
+        Some("ogg") => "audio/ogg",
+        Some("opus") => "audio/opus",
+        _ => "audio/mpeg",
+    }
+}
+
+#[tauri::command]
+fn read_recording(state: State<'_, AppState>, meeting_id: String) -> Result<String, String> {
+    let meeting = { let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?; meeting_by_id(&connection, &meeting_id)? };
+    let audio_path = meeting.audio_path.ok_or_else(|| "该会议没有录音".to_string())?;
+    if !PathBuf::from(&audio_path).is_file() { return Err("录音文件不存在，可能已被移动或删除".to_string()); }
+    let bytes = fs::read(&audio_path).map_err(|error| format!("读取录音失败：{error}"))?;
+    let mime = audio_mime_type(&audio_path);
+    Ok(format!("data:{mime};base64,{}", STANDARD.encode(&bytes)))
+}
+
 #[tauri::command]
 fn import_meeting_audio(state: State<'_, AppState>, meeting_id: String, audio_path: String) -> Result<Meeting, String> {
     let source = PathBuf::from(&audio_path);
@@ -899,7 +924,7 @@ pub fn run() {
             download_local_asr_model, install_speaker_engine_command,
             save_ai_settings, clear_ai_api_key, create_notebook, create_note, save_note,
             create_meeting, save_meeting, upsert_task, save_recording, import_meeting_audio, transcribe_meeting,
-            transcribe_meeting_with_speakers,
+            transcribe_meeting_with_speakers, read_recording,
             analyze_meeting, backup_workspace, delete_entity, delete_meeting
         ])
         .run(tauri::generate_context!())

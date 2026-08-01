@@ -15,6 +15,8 @@ import {
   Minimize2,
   MoreHorizontal,
   NotebookPen,
+  Pause,
+  Play,
   Plus,
   Search,
   Settings,
@@ -1085,6 +1087,9 @@ function Meetings({
                 </>
               )}
             </div>
+            {!recording && meeting.audioPath ? (
+              <AudioPlayer meetingId={meeting.id} audioPath={meeting.audioPath} />
+            ) : null}
             <AiWorkflow
               meeting={meeting}
               asrStatus={asrStatus}
@@ -1253,6 +1258,98 @@ function AiWorkflow({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+function formatTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "00:00";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function AudioPlayer({
+  meetingId,
+  audioPath,
+}: {
+  meetingId: string;
+  audioPath: string;
+}) {
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentPos, setCurrentPos] = useState(0);
+  const [totalDuration, setTotalDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (!audioPath) {
+      setAudioUrl(null);
+      return;
+    }
+    setLoading(true);
+    setCurrentPos(0);
+    setIsPlaying(false);
+    void invoke<string>("read_recording", { meetingId })
+      .then((url) => setAudioUrl(url))
+      .catch(() => setAudioUrl(null))
+      .finally(() => setLoading(false));
+  }, [meetingId, audioPath]);
+
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      void audio.play();
+    }
+  };
+
+  const handleSeek = (event: React.MouseEvent<HTMLDivElement>) => {
+    const audio = audioRef.current;
+    if (!audio || !totalDuration) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    audio.currentTime = ratio * totalDuration;
+  };
+
+  const progress = totalDuration > 0 ? (currentPos / totalDuration) * 100 : 0;
+
+  return (
+    <div className="audio-player">
+      <audio
+        ref={audioRef}
+        src={audioUrl ?? undefined}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onTimeUpdate={(e) => setCurrentPos(e.currentTarget.currentTime)}
+        onLoadedMetadata={(e) => setTotalDuration(e.currentTarget.duration)}
+        onEnded={() => setIsPlaying(false)}
+      />
+      <button
+        className="audio-play-btn"
+        onClick={togglePlay}
+        disabled={loading || !audioUrl}
+      >
+        {loading ? (
+          <LoaderCircle className="spin" size={18} />
+        ) : isPlaying ? (
+          <Pause size={18} fill="currentColor" />
+        ) : (
+          <Play size={18} fill="currentColor" />
+        )}
+      </button>
+      <span className="audio-time">{formatTime(currentPos)}</span>
+      <div className="audio-seek" onClick={handleSeek}>
+        <div className="audio-progress" style={{ width: `${progress}%` }} />
+      </div>
+      <span className="audio-time">{formatTime(totalDuration)}</span>
     </div>
   );
 }
