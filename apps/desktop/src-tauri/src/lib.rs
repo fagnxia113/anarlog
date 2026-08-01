@@ -95,11 +95,45 @@ struct AiSettingsInput { base_url: String, analysis_model: String, api_key: Opti
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AnalysisResponse { minutes: String, decisions: String, #[serde(default)] action_items: Vec<AnalysisActionItem> }
+struct AnalysisResponse {
+    #[serde(default, deserialize_with = "string_or_seq_to_string")]
+    minutes: String,
+    #[serde(default, deserialize_with = "string_or_seq_to_string")]
+    decisions: String,
+    #[serde(default)]
+    action_items: Vec<AnalysisActionItem>,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AnalysisActionItem { title: String, due_date: Option<String> }
+struct AnalysisActionItem {
+    #[serde(default, deserialize_with = "string_or_seq_to_string")]
+    title: String,
+    #[serde(default)]
+    due_date: Option<String>,
+}
+
+fn string_or_seq_to_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    match value {
+        None | Some(serde_json::Value::Null) => Ok(String::new()),
+        Some(serde_json::Value::String(s)) => Ok(s),
+        Some(serde_json::Value::Array(arr)) => {
+            let items: Vec<String> = arr
+                .into_iter()
+                .filter_map(|v| match v {
+                    serde_json::Value::String(s) => Some(s),
+                    _ => v.as_str().map(|s| s.to_string()),
+                })
+                .collect();
+            Ok(items.join("\n"))
+        }
+        Some(other) => Ok(other.to_string()),
+    }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -243,7 +277,28 @@ fn response_error(response: reqwest::blocking::Response, source: &str) -> Result
     Err(format!("{source} 返回 {status}：{message}"))
 }
 
-fn clean_json(content: &str) -> &str { content.trim().trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim() }
+fn clean_json(content: &str) -> String {
+    let trimmed = content
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+
+    if trimmed.starts_with('{') {
+        return trimmed.to_string();
+    }
+
+    if let Some(start) = trimmed.find('{') {
+        if let Some(end) = trimmed.rfind('}') {
+            if end > start {
+                return trimmed[start..=end].to_string();
+            }
+        }
+    }
+
+    trimmed.to_string()
+}
 
 fn download_file(url: &str, destination: &Path) -> Result<(), String> {
     let temporary = destination.with_file_name(format!("{}.part", destination.file_name().and_then(|name| name.to_str()).unwrap_or("model")));
@@ -777,14 +832,18 @@ fn analyze_meeting(state: State<'_, AppState>, meeting_id: String) -> Result<Ana
       "model": settings.analysis_model,
       "temperature": 0.2,
       "messages": [
-        { "role": "system", "content": "你是严谨的中文会议纪要助手。仅根据输入内容整理，不要编造事实、负责人或日期。只输出合法 JSON，不要 Markdown 代码围栏。JSON 顶层字段为 minutes、decisions、actionItems；每个行动项有 title 和可为空的 dueDate。行动项只保留明确或高度可信的事项。" },
+        { "role": "system", "content": "你是严谨的中文会议纪要助手。仅根据输入内容整理，不要编造事实、负责人或日期。只输出合法 JSON，不要 Markdown 代码围栏。\n\nJSON 格式要求（严格遵循类型）：\n- minutes：字符串（Markdown 格式的完整会议纪要）\n- decisions：字符串（关键决策，多项用换行分隔；不要用数组）\n- actionItems：数组，每项为 { \"title\": \"字符串\", \"dueDate\": \"字符串或null\" }\n\n行动项只保留明确或高度可信的事项。decisions 和 minutes 必须是字符串，不能用数组。" },
         { "role": "user", "content": prompt }
       ]
     });
     let endpoint = format!("{}/chat/completions", settings.base_url.trim_end_matches('/'));
     let response: serde_json::Value = response_error(reqwest::blocking::Client::new().post(endpoint).bearer_auth(api_key).json(&body).send().map_err(app_error)?, "智能纪要服务")?.json().map_err(app_error)?;
     let content = response.pointer("/choices/0/message/content").and_then(serde_json::Value::as_str).ok_or_else(|| "智能纪要服务没有返回可解析的内容".to_string())?;
-    let analysis: AnalysisResponse = serde_json::from_str(clean_json(content)).map_err(|error| format!("智能纪要返回的格式无效，请重试：{error}"))?;
+    let cleaned = clean_json(content);
+    let analysis: AnalysisResponse = serde_json::from_str(&cleaned).map_err(|error| {
+        let preview: String = cleaned.chars().take(500).collect();
+        format!("智能纪要返回的格式无效，请重试：{error}\n\n返回内容前500字符：\n{preview}")
+    })?;
     if analysis.minutes.trim().is_empty() { return Err("智能纪要没有生成内容".to_string()); }
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
     connection.execute("UPDATE meetings SET minutes = ?2, decisions = ?3, status = ?4, updated_at = ?5 WHERE id = ?1", params![meeting_id, analysis.minutes.trim(), analysis.decisions.trim(), "已分析", now()]).map_err(app_error)?;
