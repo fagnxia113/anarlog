@@ -589,9 +589,107 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .speaker-row.active > span { color: var(--brand-solid); }
 .speaker-row.active p { color: var(--text-strong); }
 
+/* —— 会议标题行（标题 + AI 重命名）—— */
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.title-row .title-input { flex: 1; min-width: 0; }
+.title-row .compact-button { flex: none; white-space: nowrap; }
+
+/* —— 会前背景条（可折叠）—— */
+.context-strip {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+.context-strip-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+.context-strip-head:hover { background: var(--bg-inset); color: var(--text-default); }
+.context-strip-head svg { flex: none; color: var(--text-faint); }
+.context-strip-head small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+  font-weight: 400;
+}
+.context-strip-head .context-empty { color: var(--brand-soft-fg); }
+.context-input {
+  width: 100%;
+  display: block;
+  padding: 0 var(--space-3) var(--space-3);
+  border: 0;
+  outline: 0;
+  resize: vertical;
+  color: var(--text-default);
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.context-input::placeholder { color: var(--text-disabled); }
+
+/* —— 会议详情双栏：我的笔记 + AI 产出 —— */
+.meeting-dual {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  align-items: start;
+}
+.my-notes-pane {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+  position: sticky;
+  top: 0;
+}
+.my-notes-head {
+  padding: var(--space-4) var(--space-5) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+}
+.my-notes-head h3 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text-strong); }
+.my-notes-head small { display: block; margin-top: 4px; color: var(--text-faint); font-size: 11px; }
+.my-notes-input {
+  width: 100%;
+  min-height: 420px;
+  flex: 1;
+  padding: var(--space-4) var(--space-5);
+  border: 0;
+  outline: 0;
+  resize: vertical;
+  color: var(--text-default);
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.75;
+}
+.my-notes-input::placeholder { color: var(--text-disabled); }
+
 /* —— 会议详情 Tabs（核心新增）—— */
 .meeting-tabs {
-  margin-top: var(--space-4);
+  margin-top: 0;
+  min-width: 0;
 }
 
 .tab-bar {

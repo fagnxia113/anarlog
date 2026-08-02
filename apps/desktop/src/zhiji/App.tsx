@@ -2,19 +2,15 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
-  Archive,
   Check,
   CheckCircle2,
   ChevronRight,
-  FileText,
-  FolderOpen,
   House,
   LoaderCircle,
   Maximize2,
   Mic,
   Minimize2,
   MoreHorizontal,
-  NotebookPen,
   Pause,
   Play,
   Plus,
@@ -25,19 +21,11 @@ import {
   Trash2,
   Upload,
   UsersRound,
+  Wand2,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-type Notebook = { id: string; name: string; color: string; createdAt: string };
-type Note = {
-  id: string;
-  notebookId: string | null;
-  title: string;
-  content: string;
-  tags: string;
-  updatedAt: string;
-};
 type Meeting = {
   id: string;
   notebookId: string | null;
@@ -51,6 +39,8 @@ type Meeting = {
   speakerSegments: string;
   audioPath: string | null;
   updatedAt: string;
+  context: string;
+  notes: string;
 };
 type Task = {
   id: string;
@@ -63,8 +53,6 @@ type Task = {
   origin?: string;
 };
 type Workspace = {
-  notebooks: Notebook[];
-  notes: Note[];
   meetings: Meeting[];
   tasks: Task[];
 };
@@ -85,7 +73,6 @@ type AsrEngineSettings = {
   cloudModel: string;
   cloudKeySaved: boolean;
 };
-type BackupInfo = { name: string; path: string; sizeMb: number };
 type SpeakerSegment = {
   speaker: string;
   startMs: number;
@@ -93,22 +80,20 @@ type SpeakerSegment = {
   text: string;
 };
 type AnalysisResult = { meeting: Meeting; tasks: Task[] };
-type View = "home" | "meetings" | "notes" | "tasks" | "settings";
+type View = "home" | "meetings" | "tasks" | "settings";
 type Processing =
   | "downloading"
   | "transcribing"
   | "analyzing"
+  | "renaming"
   | "installingSpeaker"
   | "speakerTranscribing"
   | "importing"
   | "deleting"
   | "autoTranscribing"
-  | "restoring"
   | null;
 
 const emptyWorkspace: Workspace = {
-  notebooks: [],
-  notes: [],
   meetings: [],
   tasks: [],
 };
@@ -187,11 +172,9 @@ export function App() {
     useState<SpeakerEngineStatus>(defaultSpeakerStatus);
   const [asrEngine, setAsrEngine] = useState<AsrEngineSettings>(defaultAsrEngine);
   const [asrKeyInput, setAsrKeyInput] = useState("");
-  const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [autoSaveHint, setAutoSaveHint] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [view, setView] = useState<View>("home");
-  const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -204,11 +187,7 @@ export function App() {
   const asrStatusRef = useRef(asrStatus);
   const speakerStatusRef = useRef(speakerStatus);
   const asrEngineRef = useRef(asrEngine);
-  const savedSnapshot = useRef<{ kind: "note" | "meeting" | null; id: string; json: string }>({
-    kind: null,
-    id: "",
-    json: "",
-  });
+  const savedSnapshot = useRef<{ id: string; json: string }>({ id: "", json: "" });
 
   useEffect(() => {
     asrStatusRef.current = asrStatus;
@@ -239,15 +218,13 @@ export function App() {
       invoke<LocalAsrStatus>("get_local_asr_status"),
       invoke<SpeakerEngineStatus>("get_speaker_engine_status"),
       invoke<AsrEngineSettings>("get_asr_engine_settings"),
-      invoke<BackupInfo[]>("list_backups"),
     ])
-      .then(([, settings, asr, speaker, engine, backupList]) => {
+      .then(([, settings, asr, speaker, engine]) => {
         if (!active) return;
         setAiSettings(settings);
         setAsrStatus(asr);
         setSpeakerStatus(speaker);
         setAsrEngine(engine);
-        setBackups(backupList);
       })
       .catch(
         (error: unknown) =>
@@ -268,16 +245,12 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [recording]);
 
-  // 自动保存：选中对象内容变化后 1.5 秒无操作即静默保存（不打断输入，不刷新列表）
+  // 自动保存：选中会议内容变化后 1.5 秒无操作即静默保存（不打断输入，不刷新列表）
   useEffect(() => {
-    const target = selectedNote
-      ? ({ kind: "note", id: selectedNote.id, json: JSON.stringify(selectedNote) } as const)
-      : selectedMeeting
-        ? ({ kind: "meeting", id: selectedMeeting.id, json: JSON.stringify(selectedMeeting) } as const)
-        : null;
-    if (!target) return;
+    if (!selectedMeeting) return;
+    const target = { id: selectedMeeting.id, json: JSON.stringify(selectedMeeting) };
     const snap = savedSnapshot.current;
-    if (snap.kind !== target.kind || snap.id !== target.id) {
+    if (snap.id !== target.id) {
       savedSnapshot.current = target;
       setAutoSaveHint("");
       return;
@@ -287,11 +260,7 @@ export function App() {
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
-          if (target.kind === "note" && selectedNote) {
-            await invoke("save_note", { note: selectedNote });
-          } else if (target.kind === "meeting" && selectedMeeting) {
-            await invoke("save_meeting", { meeting: selectedMeeting });
-          }
+          await invoke("save_meeting", { meeting: selectedMeeting });
           savedSnapshot.current = target;
           setAutoSaveHint("已自动保存");
         } catch (error) {
@@ -300,7 +269,7 @@ export function App() {
       })();
     }, 1500);
     return () => window.clearTimeout(timer);
-  }, [selectedNote, selectedMeeting]);
+  }, [selectedMeeting]);
 
   const filteredMeetings = useMemo(
     () =>
@@ -311,31 +280,11 @@ export function App() {
       ),
     [query, workspace.meetings],
   );
-  const filteredNotes = useMemo(
-    () =>
-      workspace.notes.filter((note) =>
-        `${note.title} ${note.content} ${note.tags}`
-          .toLowerCase()
-          .includes(query.toLowerCase()),
-      ),
-    [query, workspace.notes],
-  );
 
   const createMeeting = async () => {
-    const meeting = await invoke<Meeting>("create_meeting", {
-      notebookId: workspace.notebooks[0]?.id ?? null,
-    });
+    const meeting = await invoke<Meeting>("create_meeting", { notebookId: null });
     setSelectedMeeting(meeting);
     setView("meetings");
-    await reload();
-  };
-
-  const createNote = async () => {
-    const note = await invoke<Note>("create_note", {
-      notebookId: workspace.notebooks[0]?.id ?? null,
-    });
-    setSelectedNote(note);
-    setView("notes");
     await reload();
   };
 
@@ -343,7 +292,6 @@ export function App() {
     if (!selectedMeeting) return;
     await invoke("save_meeting", { meeting: selectedMeeting });
     savedSnapshot.current = {
-      kind: "meeting",
       id: selectedMeeting.id,
       json: JSON.stringify(selectedMeeting),
     };
@@ -422,19 +370,6 @@ export function App() {
     } finally {
       setProcessing(null);
     }
-  };
-
-  const saveNote = async () => {
-    if (!selectedNote) return;
-    await invoke("save_note", { note: selectedNote });
-    savedSnapshot.current = {
-      kind: "note",
-      id: selectedNote.id,
-      json: JSON.stringify(selectedNote),
-    };
-    setAutoSaveHint("已保存到本地");
-    await reload();
-    notify("笔记已保存到本地");
   };
 
   const addTask = async (
@@ -632,6 +567,23 @@ export function App() {
     }
   };
 
+  const renameMeeting = async () => {
+    if (!selectedMeeting) return;
+    try {
+      setProcessing("renaming");
+      const meeting = await invoke<Meeting>("rename_meeting", {
+        meetingId: selectedMeeting.id,
+      });
+      setSelectedMeeting(meeting);
+      await reload();
+      notify(`已重命名为「${meeting.title}」`);
+    } catch (error) {
+      notify(`AI 重命名失败：${String(error)}`);
+    } finally {
+      setProcessing(null);
+    }
+  };
+
   const installSpeakerEngine = async () => {
     try {
       setProcessing("installingSpeaker");
@@ -732,33 +684,6 @@ export function App() {
     }
   };
 
-  const refreshBackups = async () => {
-    setBackups(await invoke<BackupInfo[]>("list_backups"));
-  };
-
-  const restoreBackup = async (backup: BackupInfo) => {
-    if (
-      !window.confirm(
-        `确定用备份「${backup.name}」覆盖当前全部数据吗？\n\n覆盖前会先自动备份一份当前数据，可再次回滚。`,
-      )
-    )
-      return;
-    try {
-      setProcessing("restoring");
-      await invoke<string>("backup_workspace");
-      await invoke("restore_backup", { backupPath: backup.path });
-      await reload();
-      setSelectedMeeting(null);
-      setSelectedNote(null);
-      await refreshBackups();
-      notify("已从备份恢复全部数据（恢复前的数据也已另存为最新备份）");
-    } catch (error) {
-      notify(`恢复失败：${String(error)}`);
-    } finally {
-      setProcessing(null);
-    }
-  };
-
   if (loading)
     return (
       <div className="loading">
@@ -795,13 +720,6 @@ export function App() {
             会议
           </NavItem>
           <NavItem
-            active={view === "notes"}
-            icon={<NotebookPen size={18} />}
-            onClick={() => setView("notes")}
-          >
-            笔记本
-          </NavItem>
-          <NavItem
             active={view === "tasks"}
             icon={<CheckCircle2 size={18} />}
             onClick={() => setView("tasks")}
@@ -809,22 +727,6 @@ export function App() {
             待办
           </NavItem>
         </nav>
-        <div className="sidebar-section">
-          <div className="sidebar-label">笔记本</div>
-          {workspace.notebooks.map((notebook) => (
-            <div className="notebook-row" key={notebook.id}>
-              <span style={{ background: notebook.color }} />
-              <span>{notebook.name}</span>
-              <small>
-                {
-                  workspace.notes.filter(
-                    (note) => note.notebookId === notebook.id,
-                  ).length
-                }
-              </small>
-            </div>
-          ))}
-        </div>
         <button className="settings-link" onClick={() => setView("settings")}>
           <Settings size={18} />
           设置与智能功能
@@ -833,14 +735,13 @@ export function App() {
       <main className="main-content">
         <header className="page-header">
           <div>
-            <p className="eyebrow">个人会议纪要与笔记本</p>
+            <p className="eyebrow">个人会议纪要</p>
             <h1>
               {
                 (
                   {
                     home: "今天",
                     meetings: "会议",
-                    notes: "笔记本",
                     tasks: "待办",
                     settings: "设置",
                   } as Record<View, string>
@@ -853,7 +754,7 @@ export function App() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索会议和笔记"
+              placeholder="搜索会议标题、纪要与原文"
             />
           </label>
         </header>
@@ -862,14 +763,9 @@ export function App() {
           <Home
             workspace={workspace}
             onMeeting={() => void createMeeting()}
-            onNote={() => void createNote()}
             onOpenMeeting={(meeting) => {
               setSelectedMeeting(meeting);
               setView("meetings");
-            }}
-            onOpenNote={(note) => {
-              setSelectedNote(note);
-              setView("notes");
             }}
           />
         )}
@@ -899,20 +795,9 @@ export function App() {
             onTranscribe={() => void transcribeMeeting()}
             onTranscribeWithSpeakers={() => void transcribeWithSpeakers()}
             onAnalyze={() => void analyzeMeeting()}
+            onRename={() => void renameMeeting()}
             onInstallSpeaker={() => void installSpeakerEngine()}
             onOpenSettings={() => setView("settings")}
-          />
-        )}
-        {view === "notes" && (
-          <Notes
-            notes={filteredNotes}
-            notebooks={workspace.notebooks}
-            note={selectedNote}
-            onSelect={setSelectedNote}
-            onCreate={() => void createNote()}
-            onChange={setSelectedNote}
-            onSave={() => void saveNote()}
-            autoSaveHint={autoSaveHint}
           />
         )}
         {view === "tasks" && (
@@ -929,7 +814,6 @@ export function App() {
             asrStatus={asrStatus}
             asrEngine={asrEngine}
             asrKeyInput={asrKeyInput}
-            backups={backups}
             apiKey={apiKey}
             processing={processing}
             onAiChange={setAiSettings}
@@ -941,22 +825,6 @@ export function App() {
             onAsrKeyInputChange={setAsrKeyInput}
             onSaveAsrEngine={(next, withKey) => void saveAsrEngine(next, withKey)}
             onClearCloudAsrKey={() => void clearCloudAsrKey()}
-            onRestore={(backup) => void restoreBackup(backup)}
-            onCreateNotebook={async () => {
-              const name = window.prompt("笔记本名称");
-              if (!name?.trim()) return;
-              await invoke("create_notebook", {
-                name: name.trim(),
-                color: "#4f7cff",
-              });
-              await reload();
-              notify("笔记本已创建");
-            }}
-            onBackup={async () => {
-              const path = await invoke<string>("backup_workspace");
-              await refreshBackups();
-              notify(`备份已创建：${path}`);
-            }}
           />
         )}
       </main>
@@ -1010,15 +878,11 @@ function NavItem({
 function Home({
   workspace,
   onMeeting,
-  onNote,
   onOpenMeeting,
-  onOpenNote,
 }: {
   workspace: Workspace;
   onMeeting: () => void;
-  onNote: () => void;
   onOpenMeeting: (meeting: Meeting) => void;
-  onOpenNote: (note: Note) => void;
 }) {
   const openTasks = workspace.tasks.filter((task) => !task.completed);
   return (
@@ -1064,10 +928,6 @@ function Home({
             <Mic size={17} />
             开始会议
           </button>
-          <button className="secondary-button" onClick={onNote}>
-            <FileText size={17} />
-            新建笔记
-          </button>
         </div>
       </section>
       <section className="stats-row">
@@ -1078,26 +938,20 @@ function Home({
           tone="brand"
         />
         <Stat
-          icon={<NotebookPen />}
-          label="全部笔记"
-          value={workspace.notes.length}
-          tone="info"
-        />
-        <Stat
           icon={<CheckCircle2 />}
           label="待完成"
           value={openTasks.length}
           tone="warning"
         />
       </section>
-      <section className="panel recent-panel">
+      <section className="panel recent-panel recent-panel-full">
         <div className="panel-title">
           <h3>最近会议</h3>
           <button onClick={onMeeting}>
             新建 <Plus size={14} />
           </button>
         </div>
-        {workspace.meetings.slice(0, 4).map((meeting) => (
+        {workspace.meetings.slice(0, 6).map((meeting) => (
           <button
             className="recent-row"
             key={meeting.id}
@@ -1118,31 +972,6 @@ function Home({
         {workspace.meetings.length === 0 && (
           <Empty label="还没有会议，开始记录第一场吧。" />
         )}
-      </section>
-      <section className="panel recent-panel">
-        <div className="panel-title">
-          <h3>最近笔记</h3>
-          <button onClick={onNote}>
-            新建 <Plus size={14} />
-          </button>
-        </div>
-        {workspace.notes.slice(0, 4).map((note) => (
-          <button
-            className="recent-row"
-            key={note.id}
-            onClick={() => onOpenNote(note)}
-          >
-            <span className="round-icon yellow">
-              <FileText size={16} />
-            </span>
-            <span>
-              <strong>{note.title}</strong>
-              <small>{note.content || "空白笔记"}</small>
-            </span>
-            <ChevronRight size={17} />
-          </button>
-        ))}
-        {workspace.notes.length === 0 && <Empty label="还没有笔记。" />}
       </section>
     </div>
   );
@@ -1195,6 +1024,7 @@ function Meetings({
   onTranscribe,
   onTranscribeWithSpeakers,
   onAnalyze,
+  onRename,
   onInstallSpeaker,
   onOpenSettings,
 }: {
@@ -1222,6 +1052,7 @@ function Meetings({
   onTranscribe: () => void;
   onTranscribeWithSpeakers: () => void;
   onAnalyze: () => void;
+  onRename: () => void;
   onInstallSpeaker: () => void;
   onOpenSettings: () => void;
 }) {
@@ -1232,6 +1063,9 @@ function Meetings({
   const [activeTab, setActiveTab] = useState<"minutes" | "transcript" | "speakers" | "tasks">(
     "minutes",
   );
+  // 会前背景条：默认收起；有内容时收起并显示首行预览，空时展开引导填写
+  const [contextOpen, setContextOpen] = useState<boolean | null>(null);
+  const contextExpanded = contextOpen ?? !meeting?.context?.trim();
 
   // 解析说话人段数用于 Tab 计数徽章
   const speakerSegments = useMemo<SpeakerSegment[]>(() => {
@@ -1291,13 +1125,28 @@ function Meetings({
           <>
             <div className="editor-top">
               <div>
-                <input
-                  className="title-input"
-                  value={meeting.title}
-                  onChange={(event) =>
-                    onChange({ ...meeting, title: event.target.value })
-                  }
-                />
+                <div className="title-row">
+                  <input
+                    className="title-input"
+                    value={meeting.title}
+                    onChange={(event) =>
+                      onChange({ ...meeting, title: event.target.value })
+                    }
+                  />
+                  <button
+                    className="secondary-button compact-button"
+                    disabled={!aiConfigured || !meeting.transcript.trim() || processing !== null}
+                    onClick={onRename}
+                    title="根据会议内容，自动按「日期-主题」重新命名"
+                  >
+                    {processing === "renaming" ? (
+                      <LoaderCircle className="spin" size={14} />
+                    ) : (
+                      <Wand2 size={14} />
+                    )}
+                    {processing === "renaming" ? "命名中" : "AI 重命名"}
+                  </button>
+                </div>
                 <div className="meeting-meta">
                   <span>{dateTime(meeting.startedAt)}</span>
                   <span>·</span>
@@ -1325,6 +1174,39 @@ function Meetings({
                   保存
                 </button>
               </div>
+            </div>
+            {/* 会前背景：会议材料/议程/背景说明，转写与生成纪要时作为参考 */}
+            <div className={`context-strip ${contextExpanded ? "open" : ""}`}>
+              <button
+                className="context-strip-head"
+                onClick={() => setContextOpen(!contextExpanded)}
+              >
+                <ChevronRight
+                  size={14}
+                  style={{
+                    transform: contextExpanded ? "rotate(90deg)" : "none",
+                    transition: "transform 120ms",
+                  }}
+                />
+                <span>会前背景</span>
+                {!contextExpanded && meeting.context.trim() && (
+                  <small>{meeting.context.trim().split("\n")[0]}</small>
+                )}
+                {!contextExpanded && !meeting.context.trim() && (
+                  <small className="context-empty">粘贴会议材料/议程，纪要更准</small>
+                )}
+              </button>
+              {contextExpanded && (
+                <textarea
+                  className="context-input"
+                  value={meeting.context}
+                  onChange={(event) =>
+                    onChange({ ...meeting, context: event.target.value })
+                  }
+                  placeholder="会前把会议背景、议程、PPT 大纲或相关材料粘贴到这里。转写和生成智能纪要时会作为参考依据。"
+                  rows={4}
+                />
+              )}
             </div>
             <div className={`recording-bar ${recording ? "recording" : ""}`}>
               {recording ? (
@@ -1404,123 +1286,139 @@ function Meetings({
                 onOpenSettings={onOpenSettings}
               />
             </div>
-            {/* 会议详情 Tabs：4 个 Tab 组织纪要/原文/说话人/待办 */}
-            <div className="meeting-tabs">
-              <div className="tab-bar">
-                <button
-                  className={`tab-item ${activeTab === "minutes" ? "active" : ""}`}
-                  onClick={() => setActiveTab("minutes")}
-                >
-                  智能纪要
-                </button>
-                <button
-                  className={`tab-item ${activeTab === "transcript" ? "active" : ""}`}
-                  onClick={() => setActiveTab("transcript")}
-                >
-                  原文转写
-                  <span className="count-pill">{meeting.transcript.length}</span>
-                </button>
-                <button
-                  className={`tab-item ${activeTab === "speakers" ? "active" : ""}`}
-                  onClick={() => setActiveTab("speakers")}
-                >
-                  说话人时间线
-                  <span className="count-pill">{speakerSegments.length}</span>
-                </button>
-                <button
-                  className={`tab-item ${activeTab === "tasks" ? "active" : ""}`}
-                  onClick={() => setActiveTab("tasks")}
-                >
-                  决策与待办
-                  <span className="count-pill">{meetingTasks.length}</span>
-                </button>
-              </div>
-              <div className="tab-panel" key={activeTab}>
-                {activeTab === "minutes" && (
-                  <div className="tab-panel-doc">
-                    {meeting.minutes.trim() || aiConfigured ? (
-                      <EditorField
-                        label="会议纪要"
-                        hint="智能分析会生成主题、关键讨论、结论、风险与下一步"
-                        value={meeting.minutes}
-                        onChange={(minutes) => onChange({ ...meeting, minutes })}
-                        placeholder="可手动记录，或点击上方「生成智能纪要」…"
-                      />
-                    ) : (
-                      <div className="tab-panel-empty">
-                        点击上方「生成智能纪要」，AI 会基于转写稿自动生成结构化纪要。
-                      </div>
-                    )}
-                  </div>
-                )}
-                {activeTab === "transcript" && (
-                  <EditorField
-                    label="原始记录 / 转写稿"
-                    hint="本地语音转写会写入这里；也可以粘贴文字记录"
-                    value={meeting.transcript}
-                    onChange={(transcript) => onChange({ ...meeting, transcript })}
-                    placeholder="录音转写后会显示在这里…"
-                  />
-                )}
-                {activeTab === "speakers" &&
-                  (speakerSegments.length > 0 ? (
-                    <SpeakerTimeline
-                      segments={meeting.speakerSegments}
-                      currentMs={currentMs}
-                      onSeek={(ms) =>
-                        setSeekRequest({ time: ms / 1000, nonce: Date.now() })
-                      }
-                    />
-                  ) : (
-                    <div className="tab-panel-empty">
-                      转写并区分说话人后，这里会显示带发言人的时间线。
-                    </div>
-                  ))}
-                {activeTab === "tasks" && (
-                  <div className="meeting-editor">
-                    <EditorField
-                      label="决策与共识"
-                      hint="只保留明确决定；不确定项会标记待确认"
-                      value={meeting.decisions}
-                      onChange={(decisions) => onChange({ ...meeting, decisions })}
-                      placeholder="例如：下周三前交付第一版原型"
-                    />
-                    <div>
-                      <div className="section-heading">
-                        <h3>本会议待办</h3>
-                        <button className="secondary-button compact-button" onClick={onTask}>
-                          <Plus size={14} />
-                          添加
-                        </button>
-                      </div>
-                      {meetingTasks.length > 0 ? (
-                        <section className="task-group">
-                          {meetingTasks.map((task) => (
-                            <label
-                              className={`task-row ${task.completed ? "done" : ""}`}
-                              key={task.id}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={task.completed}
-                                onChange={() => onToggleTask(task)}
-                              />
-                              <span className="checkmark">
-                                {task.completed && <Check size={13} />}
-                              </span>
-                              <span>{task.title}</span>
-                            </label>
-                          ))}
-                        </section>
+            {/* 双栏：左「我的笔记」常驻（开会时随手记，AI 不会覆盖）；右 AI 产出 Tabs */}
+            <div className="meeting-dual">
+              <section className="my-notes-pane">
+                <div className="my-notes-head">
+                  <h3>我的笔记</h3>
+                  <small>开会时随手记，一直显示在这里，不会被智能纪要覆盖</small>
+                </div>
+                <textarea
+                  className="my-notes-input"
+                  value={meeting.notes}
+                  onChange={(event) =>
+                    onChange({ ...meeting, notes: event.target.value })
+                  }
+                  placeholder="会议进行中，把你的观察、待确认点、临时想法记在这里…"
+                />
+              </section>
+              <section className="meeting-tabs">
+                <div className="tab-bar">
+                  <button
+                    className={`tab-item ${activeTab === "minutes" ? "active" : ""}`}
+                    onClick={() => setActiveTab("minutes")}
+                  >
+                    智能纪要
+                  </button>
+                  <button
+                    className={`tab-item ${activeTab === "transcript" ? "active" : ""}`}
+                    onClick={() => setActiveTab("transcript")}
+                  >
+                    原文转写
+                    <span className="count-pill">{meeting.transcript.length}</span>
+                  </button>
+                  <button
+                    className={`tab-item ${activeTab === "speakers" ? "active" : ""}`}
+                    onClick={() => setActiveTab("speakers")}
+                  >
+                    说话人时间线
+                    <span className="count-pill">{speakerSegments.length}</span>
+                  </button>
+                  <button
+                    className={`tab-item ${activeTab === "tasks" ? "active" : ""}`}
+                    onClick={() => setActiveTab("tasks")}
+                  >
+                    决策与待办
+                    <span className="count-pill">{meetingTasks.length}</span>
+                  </button>
+                </div>
+                <div className="tab-panel" key={activeTab}>
+                  {activeTab === "minutes" && (
+                    <div className="tab-panel-doc">
+                      {meeting.minutes.trim() || aiConfigured ? (
+                        <EditorField
+                          label="会议纪要"
+                          hint="智能分析会生成主题、关键讨论、结论、风险与下一步"
+                          value={meeting.minutes}
+                          onChange={(minutes) => onChange({ ...meeting, minutes })}
+                          placeholder="点击上方「生成智能纪要」，AI 会基于转写稿自动生成…"
+                        />
                       ) : (
                         <div className="tab-panel-empty">
-                          智能纪要生成后会自动提取行动项到这里。也可以手动添加。
+                          点击上方「生成智能纪要」，AI 会基于转写稿自动生成结构化纪要。
                         </div>
                       )}
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                  {activeTab === "transcript" && (
+                    <EditorField
+                      label="原始记录 / 转写稿"
+                      hint="本地语音转写会写入这里；也可以粘贴文字记录"
+                      value={meeting.transcript}
+                      onChange={(transcript) => onChange({ ...meeting, transcript })}
+                      placeholder="录音转写后会显示在这里…"
+                    />
+                  )}
+                  {activeTab === "speakers" &&
+                    (speakerSegments.length > 0 ? (
+                      <SpeakerTimeline
+                        segments={meeting.speakerSegments}
+                        currentMs={currentMs}
+                        onSeek={(ms) =>
+                          setSeekRequest({ time: ms / 1000, nonce: Date.now() })
+                        }
+                      />
+                    ) : (
+                      <div className="tab-panel-empty">
+                        转写并区分说话人后，这里会显示带发言人的时间线。
+                      </div>
+                    ))}
+                  {activeTab === "tasks" && (
+                    <div className="meeting-editor">
+                      <EditorField
+                        label="决策与共识"
+                        hint="只保留明确决定；不确定项会标记待确认"
+                        value={meeting.decisions}
+                        onChange={(decisions) => onChange({ ...meeting, decisions })}
+                        placeholder="例如：下周三前交付第一版原型"
+                      />
+                      <div>
+                        <div className="section-heading">
+                          <h3>本会议待办</h3>
+                          <button className="secondary-button compact-button" onClick={onTask}>
+                            <Plus size={14} />
+                            添加
+                          </button>
+                        </div>
+                        {meetingTasks.length > 0 ? (
+                          <section className="task-group">
+                            {meetingTasks.map((task) => (
+                              <label
+                                className={`task-row ${task.completed ? "done" : ""}`}
+                                key={task.id}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={task.completed}
+                                  onChange={() => onToggleTask(task)}
+                                />
+                                <span className="checkmark">
+                                  {task.completed && <Check size={13} />}
+                                </span>
+                                <span>{task.title}</span>
+                              </label>
+                            ))}
+                          </section>
+                        ) : (
+                          <div className="tab-panel-empty">
+                            智能纪要生成后会自动提取行动项到这里。也可以手动添加。
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
           </>
         ) : (
@@ -1889,115 +1787,6 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`status-badge ${cls}`}>{status}</span>;
 }
 
-function Notes({
-  notes,
-  notebooks,
-  note,
-  onSelect,
-  onCreate,
-  onChange,
-  onSave,
-  autoSaveHint,
-}: {
-  notes: Note[];
-  notebooks: Notebook[];
-  note: Note | null;
-  onSelect: (note: Note) => void;
-  onCreate: () => void;
-  onChange: (note: Note) => void;
-  onSave: () => void;
-  autoSaveHint: string;
-}) {
-  return (
-    <div className="split-layout">
-      <section className="list-pane">
-        <div className="pane-heading">
-          <div>
-            <h2>全部笔记</h2>
-            <small>{notes.length} 条笔记</small>
-          </div>
-          <button className="round-add" onClick={onCreate}>
-            <Plus size={18} />
-          </button>
-        </div>
-        {notes.map((item) => (
-          <button
-            className={`note-item ${note?.id === item.id ? "selected" : ""}`}
-            onClick={() => onSelect(item)}
-            key={item.id}
-          >
-            <FileText size={17} />
-            <span>
-              <strong>{item.title}</strong>
-              <small>{item.content || "空白笔记"}</small>
-            </span>
-          </button>
-        ))}
-        {notes.length === 0 && <Empty label="还没有笔记。" />}
-      </section>
-      <section className="editor-pane note-editor">
-        {note ? (
-          <>
-            <div className="editor-top">
-              <div>
-                <input
-                  className="title-input"
-                  value={note.title}
-                  onChange={(event) =>
-                    onChange({ ...note, title: event.target.value })
-                  }
-                />
-                <small>上次编辑于 {dateTime(note.updatedAt)}</small>
-              </div>
-              <div className="editor-buttons">
-                {autoSaveHint && (
-                  <small className="autosave-hint">{autoSaveHint}</small>
-                )}
-                <button className="primary-button" onClick={onSave}>
-                  <Check size={15} />
-                  保存
-                </button>
-              </div>
-            </div>
-            <div className="note-meta">
-              <FolderOpen size={15} />
-              <select
-                value={note.notebookId ?? ""}
-                onChange={(event) =>
-                  onChange({ ...note, notebookId: event.target.value || null })
-                }
-              >
-                <option value="">未分类</option>
-                {notebooks.map((notebook) => (
-                  <option value={notebook.id} key={notebook.id}>
-                    {notebook.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                value={note.tags}
-                onChange={(event) =>
-                  onChange({ ...note, tags: event.target.value })
-                }
-                placeholder="标签，用逗号分隔"
-              />
-            </div>
-            <textarea
-              className="note-content"
-              value={note.content}
-              onChange={(event) =>
-                onChange({ ...note, content: event.target.value })
-              }
-              placeholder="开始书写…"
-            />
-          </>
-        ) : (
-          <Empty label="选择一条笔记，或新建笔记。" />
-        )}
-      </section>
-    </div>
-  );
-}
 
 function EditorField({
   label,
@@ -2110,7 +1899,6 @@ function SettingsView({
   asrStatus,
   asrEngine,
   asrKeyInput,
-  backups,
   apiKey,
   processing,
   onAiChange,
@@ -2122,16 +1910,12 @@ function SettingsView({
   onAsrKeyInputChange,
   onSaveAsrEngine,
   onClearCloudAsrKey,
-  onRestore,
-  onCreateNotebook,
-  onBackup,
 }: {
   workspace: Workspace;
   aiSettings: AiSettings;
   asrStatus: LocalAsrStatus;
   asrEngine: AsrEngineSettings;
   asrKeyInput: string;
-  backups: BackupInfo[];
   apiKey: string;
   processing: Processing;
   onAiChange: (settings: AiSettings) => void;
@@ -2143,9 +1927,6 @@ function SettingsView({
   onAsrKeyInputChange: (key: string) => void;
   onSaveAsrEngine: (next: AsrEngineSettings, withKey: boolean) => void;
   onClearCloudAsrKey: () => void;
-  onRestore: (backup: BackupInfo) => void;
-  onCreateNotebook: () => void;
-  onBackup: () => void;
 }) {
   const cloud = asrEngine.provider === "cloud";
   const presetValue =
@@ -2163,7 +1944,7 @@ function SettingsView({
         <div>
           <h2>引擎由你选，数据在你手里</h2>
           <p>
-            转写可以在本机离线完成，也可以走你配置的云端服务（录音只发给该服务商）；智能纪要只发送转写文字。录音与资料库始终保存在这台电脑，可备份、可恢复、可带走。
+            转写可以在本机离线完成，也可以走你配置的云端服务（录音只发给该服务商）；智能纪要只发送转写文字。录音与资料库始终保存在这台电脑。
           </p>
         </div>
       </section>
@@ -2403,68 +2184,17 @@ function SettingsView({
           )}
         </div>
       </section>
-      <h3 className="settings-section-title">数据与备份</h3>
-      <section className="settings-card">
-        <div>
-          <h3>笔记本</h3>
-          <p>用笔记本把会议和普通笔记归类。</p>
-        </div>
-        <button className="secondary-button" onClick={onCreateNotebook}>
-          <Plus size={16} />
-          新建笔记本
-        </button>
-      </section>
+      <h3 className="settings-section-title">数据</h3>
       <section className="settings-card">
         <div>
           <h3>本地资料库</h3>
           <p>
-            当前保存 {workspace.meetings.length} 场会议、
-            {workspace.notes.length} 条笔记和 {workspace.tasks.length}{" "}
-            项待办。数据使用 SQLite 存储在 Windows 应用资料目录。
+            当前保存 {workspace.meetings.length} 场会议和{" "}
+            {workspace.tasks.length} 项待办。数据使用 SQLite
+            存储在 Windows 应用资料目录。
           </p>
         </div>
       </section>
-      <section className="settings-card">
-        <div>
-          <h3>备份与恢复</h3>
-          <p>
-            备份包含 SQLite 资料库与全部会议录音。启动时若超过 24
-            小时未备份会自动备份，保留最近 7 份。
-          </p>
-        </div>
-        <button
-          className="secondary-button"
-          disabled={processing !== null}
-          onClick={onBackup}
-        >
-          <Archive size={16} />
-          立即备份
-        </button>
-      </section>
-      {backups.length > 0 && (
-        <section className="settings-card backups-card">
-          <div>
-            <h3>已有备份</h3>
-            <p>恢复会用备份覆盖当前资料库；覆盖前会自动再备份一份当前数据。</p>
-          </div>
-          {backups.map((backup) => (
-            <div className="backup-row" key={backup.path}>
-              <span>{backup.name.replace("zhiji-", "")}</span>
-              <small>{backup.sizeMb} MB</small>
-              <button
-                className="secondary-button compact-button"
-                disabled={processing !== null}
-                onClick={() => onRestore(backup)}
-              >
-                {processing === "restoring" ? (
-                  <LoaderCircle className="spin" size={14} />
-                ) : null}
-                恢复
-              </button>
-            </div>
-          ))}
-        </section>
-      )}
     </div>
   );
 }

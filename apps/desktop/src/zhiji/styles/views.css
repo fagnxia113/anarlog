@@ -79,7 +79,7 @@
 .stats-row {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--space-5);
 }
 
@@ -110,8 +110,9 @@
 .stat-card strong { font-size: 20px; color: var(--text-strong); }
 .stat-card small { margin-top: 3px; color: var(--text-muted); font-size: 12px; }
 
-/* 最近面板：首页右侧 */
+/* 最近面板：首页通栏 */
 .recent-panel { grid-column: span 1; }
+.recent-panel-full { grid-column: 1 / -1; }
 
 /* —— 会议视图 —— */
 .meeting-meta {

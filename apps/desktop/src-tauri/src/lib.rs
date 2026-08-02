@@ -42,7 +42,6 @@ const GET_PIP_URL: &str = "https://bootstrap.pypa.io/get-pip.py";
 
 struct AppState {
     connection: Mutex<Connection>,
-    database_path: PathBuf,
     models_dir: PathBuf,
     recordings_dir: PathBuf,
     runtime_dir: PathBuf,
@@ -51,14 +50,6 @@ struct AppState {
     speaker_engine_dir: PathBuf,
     speaker_models_dir: PathBuf,
 }
-
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Notebook { id: String, name: String, color: String, created_at: String }
-
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Note { id: String, notebook_id: Option<String>, title: String, content: String, tags: String, updated_at: String }
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,6 +66,10 @@ struct Meeting {
     speaker_segments: String,
     audio_path: Option<String>,
     updated_at: String,
+    #[serde(default)]
+    context: String,
+    #[serde(default)]
+    notes: String,
 }
 
 fn default_task_origin() -> String { "manual".to_string() }
@@ -95,7 +90,7 @@ struct Task {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Workspace { notebooks: Vec<Notebook>, notes: Vec<Note>, meetings: Vec<Meeting>, tasks: Vec<Task> }
+struct Workspace { meetings: Vec<Meeting>, tasks: Vec<Task> }
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -126,6 +121,8 @@ struct AsrEngineSettingsInput {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AnalysisResponse {
+    #[serde(default, deserialize_with = "string_or_seq_to_string")]
+    theme: String,
     #[serde(default, deserialize_with = "string_or_seq_to_string")]
     minutes: String,
     #[serde(default, deserialize_with = "string_or_seq_to_string")]
@@ -189,6 +186,30 @@ fn now() -> String { Local::now().to_rfc3339() }
 fn id() -> String { Uuid::new_v4().to_string() }
 fn app_error(error: impl std::fmt::Display) -> String { error.to_string() }
 
+/// 从 RFC3339 时间串取会议日期前缀 YYYYMMDD；解析失败退回当天
+fn meeting_date_prefix(started_at: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(started_at)
+        .map(|value| value.format("%Y%m%d").to_string())
+        .unwrap_or_else(|_| Local::now().format("%Y%m%d").to_string())
+}
+
+/// 清洗 AI 返回的会议主题：去空白/换行/书名号/引号，去掉首尾标点，限长 24 字
+fn sanitize_theme(raw: &str) -> String {
+    let cleaned: String = raw
+        .chars()
+        .filter(|ch| !matches!(ch, '\n' | '\r' | '\t' | '《' | '》' | '"' | '\u{201C}' | '\u{201D}' | '\'' | '\u{2018}' | '\u{2019}'))
+        .collect();
+    let trimmed = cleaned.trim().trim_matches(|ch: char| ch == '。' || ch == '，' || ch == '、' || ch == ' ');
+    trimmed.chars().take(24).collect()
+}
+
+/// 生成规范会议名：YYYYMMDD-主题（日期取开会当天，主题为空时返回 None 不改名）
+fn auto_meeting_title(started_at: &str, theme: &str) -> Option<String> {
+    let theme = sanitize_theme(theme);
+    if theme.is_empty() { return None; }
+    Some(format!("{}-{}", meeting_date_prefix(started_at), theme))
+}
+
 fn resource_folder(resource_dir: &Path, name: &str, executable: &str) -> PathBuf {
     [resource_dir.join(name), resource_dir.join("resources").join(name)]
         .into_iter()
@@ -238,18 +259,11 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
         ",
     )?;
     ensure_column(&connection, "meetings", "speaker_segments", "TEXT NOT NULL DEFAULT '[]'")?;
+    ensure_column(&connection, "meetings", "context", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(&connection, "meetings", "notes", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&connection, "tasks", "origin", "TEXT NOT NULL DEFAULT 'manual'")?;
     clean_stored_transcripts(&connection)?;
-    let count: i64 = connection.query_row("SELECT COUNT(*) FROM notebooks", [], |row| row.get(0))?;
-    if count == 0 {
-        let notebook_id = id();
-        connection.execute("INSERT INTO notebooks (id, name, color, created_at) VALUES (?1, ?2, ?3, ?4)", params![notebook_id, "收集箱", "#4f7cff", now()])?;
-        connection.execute(
-            "INSERT INTO notes (id, notebook_id, title, content, tags, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![id(), notebook_id, "欢迎使用知记", "从这里开始记录。你可以创建会议、保存录音、整理纪要，并把行动项统一放进待办。", "开始使用", now()],
-        )?;
-    }
-    Ok(AppState { connection: Mutex::new(connection), database_path, models_dir, recordings_dir, runtime_dir, ffmpeg_dir, vcrt_dir, speaker_engine_dir, speaker_models_dir })
+    Ok(AppState { connection: Mutex::new(connection), models_dir, recordings_dir, runtime_dir, ffmpeg_dir, vcrt_dir, speaker_engine_dir, speaker_models_dir })
 }
 
 fn ensure_column(connection: &Connection, table: &str, column: &str, definition: &str) -> Result<(), Box<dyn Error>> {
@@ -289,7 +303,7 @@ fn asr_engine_settings(connection: &Connection) -> Result<AsrEngineSettings, Str
     })
 }
 
-fn run_cloud_asr(base_url: String, model: String, api_key: String, audio_path: String) -> Result<String, String> {
+fn run_cloud_asr(base_url: String, model: String, api_key: String, audio_path: String, prompt_hint: String) -> Result<String, String> {
     if !base_url.starts_with("https://") && !base_url.starts_with("http://") { return Err("云端转写服务地址必须以 http:// 或 https:// 开头".to_string()); }
     let endpoint = format!("{}/audio/transcriptions", base_url.trim_end_matches('/'));
     let file_name = PathBuf::from(&audio_path)
@@ -301,10 +315,15 @@ fn run_cloud_asr(base_url: String, model: String, api_key: String, audio_path: S
         .file_name(file_name)
         .mime_str("application/octet-stream")
         .map_err(app_error)?;
-    let form = reqwest::blocking::multipart::Form::new()
+    let mut form = reqwest::blocking::multipart::Form::new()
         .text("model", model)
-        .text("response_format", "json")
-        .part("file", part);
+        .text("response_format", "json");
+    // 会前背景作为 prompt 传给兼容 whisper 的服务（如 Groq/OpenAI），帮助识别专有名词；不支持的服务会忽略该字段
+    if !prompt_hint.trim().is_empty() {
+        let hint: String = prompt_hint.trim().chars().take(800).collect();
+        form = form.text("prompt", hint);
+    }
+    let form = form.part("file", part);
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(1800))
         .build()
@@ -335,11 +354,17 @@ fn configured_ai(state: &AppState) -> Result<(AiSettings, String), String> {
     Ok((settings, key))
 }
 
+const MEETING_COLUMNS: &str = "id, notebook_id, title, started_at, duration_seconds, status, transcript, minutes, decisions, speaker_segments, audio_path, updated_at, context, notes";
+
+fn meeting_from_row(row: &rusqlite::Row) -> rusqlite::Result<Meeting> {
+    Ok(Meeting { id: row.get(0)?, notebook_id: row.get(1)?, title: row.get(2)?, started_at: row.get(3)?, duration_seconds: row.get(4)?, status: row.get(5)?, transcript: row.get(6)?, minutes: row.get(7)?, decisions: row.get(8)?, speaker_segments: row.get(9)?, audio_path: row.get(10)?, updated_at: row.get(11)?, context: row.get(12)?, notes: row.get(13)? })
+}
+
 fn meeting_by_id(connection: &Connection, meeting_id: &str) -> Result<Meeting, String> {
     connection.query_row(
-        "SELECT id, notebook_id, title, started_at, duration_seconds, status, transcript, minutes, decisions, speaker_segments, audio_path, updated_at FROM meetings WHERE id = ?1",
+        &format!("SELECT {MEETING_COLUMNS} FROM meetings WHERE id = ?1"),
         params![meeting_id],
-        |row| Ok(Meeting { id: row.get(0)?, notebook_id: row.get(1)?, title: row.get(2)?, started_at: row.get(3)?, duration_seconds: row.get(4)?, status: row.get(5)?, transcript: row.get(6)?, minutes: row.get(7)?, decisions: row.get(8)?, speaker_segments: row.get(9)?, audio_path: row.get(10)?, updated_at: row.get(11)? }),
+        meeting_from_row,
     ).map_err(|error| match error { rusqlite::Error::QueryReturnedNoRows => "找不到该会议".to_string(), other => app_error(other) })
 }
 
@@ -683,31 +708,9 @@ fn run_speaker_engine(engine_dir: PathBuf, models_dir: PathBuf, runtime_dir: Pat
     Ok(transcript)
 }
 
-fn copy_folder(source: &Path, destination: &Path) -> Result<(), String> {
-    if !source.exists() { return Ok(()); }
-    fs::create_dir_all(destination).map_err(app_error)?;
-    for entry in fs::read_dir(source).map_err(app_error)? {
-        let entry = entry.map_err(app_error)?;
-        let source_path = entry.path();
-        let destination_path = destination.join(entry.file_name());
-        if source_path.is_dir() { copy_folder(&source_path, &destination_path)?; } else { fs::copy(source_path, destination_path).map_err(app_error)?; }
-    }
-    Ok(())
-}
-
-fn notebooks(connection: &Connection) -> Result<Vec<Notebook>, String> {
-    let mut statement = connection.prepare("SELECT id, name, color, created_at FROM notebooks ORDER BY created_at ASC").map_err(app_error)?;
-    statement.query_map([], |row| Ok(Notebook { id: row.get(0)?, name: row.get(1)?, color: row.get(2)?, created_at: row.get(3)? })).map_err(app_error)?.collect::<Result<Vec<_>, _>>().map_err(app_error)
-}
-
-fn notes(connection: &Connection) -> Result<Vec<Note>, String> {
-    let mut statement = connection.prepare("SELECT id, notebook_id, title, content, tags, updated_at FROM notes ORDER BY updated_at DESC").map_err(app_error)?;
-    statement.query_map([], |row| Ok(Note { id: row.get(0)?, notebook_id: row.get(1)?, title: row.get(2)?, content: row.get(3)?, tags: row.get(4)?, updated_at: row.get(5)? })).map_err(app_error)?.collect::<Result<Vec<_>, _>>().map_err(app_error)
-}
-
 fn meetings(connection: &Connection) -> Result<Vec<Meeting>, String> {
-    let mut statement = connection.prepare("SELECT id, notebook_id, title, started_at, duration_seconds, status, transcript, minutes, decisions, speaker_segments, audio_path, updated_at FROM meetings ORDER BY started_at DESC").map_err(app_error)?;
-    statement.query_map([], |row| Ok(Meeting { id: row.get(0)?, notebook_id: row.get(1)?, title: row.get(2)?, started_at: row.get(3)?, duration_seconds: row.get(4)?, status: row.get(5)?, transcript: row.get(6)?, minutes: row.get(7)?, decisions: row.get(8)?, speaker_segments: row.get(9)?, audio_path: row.get(10)?, updated_at: row.get(11)? })).map_err(app_error)?.collect::<Result<Vec<_>, _>>().map_err(app_error)
+    let mut statement = connection.prepare(&format!("SELECT {MEETING_COLUMNS} FROM meetings ORDER BY started_at DESC")).map_err(app_error)?;
+    statement.query_map([], meeting_from_row).map_err(app_error)?.collect::<Result<Vec<_>, _>>().map_err(app_error)
 }
 
 fn tasks(connection: &Connection) -> Result<Vec<Task>, String> {
@@ -718,7 +721,7 @@ fn tasks(connection: &Connection) -> Result<Vec<Task>, String> {
 #[tauri::command]
 fn load_workspace(state: State<'_, AppState>) -> Result<Workspace, String> {
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    Ok(Workspace { notebooks: notebooks(&connection)?, notes: notes(&connection)?, meetings: meetings(&connection)?, tasks: tasks(&connection)? })
+    Ok(Workspace { meetings: meetings(&connection)?, tasks: tasks(&connection)? })
 }
 
 #[tauri::command]
@@ -802,41 +805,18 @@ fn clear_cloud_asr_key() -> Result<(), String> {
 }
 
 #[tauri::command]
-fn create_notebook(state: State<'_, AppState>, name: String, color: String) -> Result<Notebook, String> {
-    let notebook = Notebook { id: id(), name, color, created_at: now() };
-    let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    connection.execute("INSERT INTO notebooks (id, name, color, created_at) VALUES (?1, ?2, ?3, ?4)", params![notebook.id, notebook.name, notebook.color, notebook.created_at]).map_err(app_error)?;
-    Ok(notebook)
-}
-
-#[tauri::command]
-fn create_note(state: State<'_, AppState>, notebook_id: Option<String>) -> Result<Note, String> {
-    let note = Note { id: id(), notebook_id, title: "未命名笔记".to_string(), content: String::new(), tags: String::new(), updated_at: now() };
-    let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    connection.execute("INSERT INTO notes (id, notebook_id, title, content, tags, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![note.id, note.notebook_id, note.title, note.content, note.tags, note.updated_at]).map_err(app_error)?;
-    Ok(note)
-}
-
-#[tauri::command]
-fn save_note(state: State<'_, AppState>, note: Note) -> Result<(), String> {
-    let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    connection.execute("UPDATE notes SET notebook_id = ?2, title = ?3, content = ?4, tags = ?5, updated_at = ?6 WHERE id = ?1", params![note.id, note.notebook_id, note.title, note.content, note.tags, now()]).map_err(app_error)?;
-    Ok(())
-}
-
-#[tauri::command]
 fn create_meeting(state: State<'_, AppState>, notebook_id: Option<String>) -> Result<Meeting, String> {
     let timestamp = now();
-    let meeting = Meeting { id: id(), notebook_id, title: "未命名会议".to_string(), started_at: timestamp.clone(), duration_seconds: 0, status: "草稿".to_string(), transcript: String::new(), minutes: String::new(), decisions: String::new(), speaker_segments: "[]".to_string(), audio_path: None, updated_at: timestamp };
+    let meeting = Meeting { id: id(), notebook_id, title: "未命名会议".to_string(), started_at: timestamp.clone(), duration_seconds: 0, status: "草稿".to_string(), transcript: String::new(), minutes: String::new(), decisions: String::new(), speaker_segments: "[]".to_string(), audio_path: None, updated_at: timestamp, context: String::new(), notes: String::new() };
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    connection.execute("INSERT INTO meetings (id, notebook_id, title, started_at, duration_seconds, status, transcript, minutes, decisions, speaker_segments, audio_path, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)", params![meeting.id, meeting.notebook_id, meeting.title, meeting.started_at, meeting.duration_seconds, meeting.status, meeting.transcript, meeting.minutes, meeting.decisions, meeting.speaker_segments, meeting.audio_path, meeting.updated_at]).map_err(app_error)?;
+    connection.execute(&format!("INSERT INTO meetings ({MEETING_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"), params![meeting.id, meeting.notebook_id, meeting.title, meeting.started_at, meeting.duration_seconds, meeting.status, meeting.transcript, meeting.minutes, meeting.decisions, meeting.speaker_segments, meeting.audio_path, meeting.updated_at, meeting.context, meeting.notes]).map_err(app_error)?;
     Ok(meeting)
 }
 
 #[tauri::command]
 fn save_meeting(state: State<'_, AppState>, meeting: Meeting) -> Result<(), String> {
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    connection.execute("UPDATE meetings SET notebook_id = ?2, title = ?3, started_at = ?4, duration_seconds = ?5, status = ?6, transcript = ?7, minutes = ?8, decisions = ?9, speaker_segments = ?10, audio_path = ?11, updated_at = ?12 WHERE id = ?1", params![meeting.id, meeting.notebook_id, meeting.title, meeting.started_at, meeting.duration_seconds, meeting.status, meeting.transcript, meeting.minutes, meeting.decisions, meeting.speaker_segments, meeting.audio_path, now()]).map_err(app_error)?;
+    connection.execute("UPDATE meetings SET notebook_id = ?2, title = ?3, started_at = ?4, duration_seconds = ?5, status = ?6, transcript = ?7, minutes = ?8, decisions = ?9, speaker_segments = ?10, audio_path = ?11, updated_at = ?12, context = ?13, notes = ?14 WHERE id = ?1", params![meeting.id, meeting.notebook_id, meeting.title, meeting.started_at, meeting.duration_seconds, meeting.status, meeting.transcript, meeting.minutes, meeting.decisions, meeting.speaker_segments, meeting.audio_path, now(), meeting.context, meeting.notes]).map_err(app_error)?;
     Ok(())
 }
 
@@ -946,7 +926,8 @@ async fn transcribe_audio(state: &State<'_, AppState>, meeting: &Meeting) -> Res
     if engine.provider == "cloud" {
         let api_key = cloud_asr_key()?.get_password().map_err(|_| "请先在设置中保存云端转写 API 密钥".to_string())?;
         if api_key.trim().is_empty() { return Err("请先在设置中保存云端转写 API 密钥".to_string()); }
-        tauri::async_runtime::spawn_blocking(move || run_cloud_asr(engine.cloud_base_url, engine.cloud_model, api_key, audio_path))
+        let prompt_hint = meeting.context.clone();
+        tauri::async_runtime::spawn_blocking(move || run_cloud_asr(engine.cloud_base_url, engine.cloud_model, api_key, audio_path, prompt_hint))
             .await.map_err(|error| format!("云端转写任务中断：{error}"))?
     } else {
         let runtime_dir = state.runtime_dir.clone();
@@ -994,31 +975,56 @@ async fn transcribe_meeting_with_speakers(state: State<'_, AppState>, meeting_id
     meeting_by_id(&connection, &meeting.id)
 }
 
-#[tauri::command]
-fn analyze_meeting(state: State<'_, AppState>, meeting_id: String) -> Result<AnalysisResult, String> {
-    let (settings, api_key) = configured_ai(&state)?;
-    let meeting = { let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?; meeting_by_id(&connection, &meeting_id)? };
-    if meeting.transcript.trim().is_empty() { return Err("请先完成语音转写，或在原始记录中粘贴会议内容".to_string()); }
-    let prompt = format!("会议标题：{}\n会议时间：{}\n\n转写稿：\n{}", meeting.title, meeting.started_at, meeting.transcript);
+/// 拼智能纪要的 user prompt：有会前背景时带上，让 AI 结合背景理解转写稿
+fn build_analysis_user_prompt(meeting: &Meeting) -> String {
+    let context_block = if meeting.context.trim().is_empty() {
+        String::new()
+    } else {
+        format!("\n\n会前背景（用户提供的会议材料，供你理解会议，不要在纪要中照抄）：\n{}", meeting.context.trim())
+    };
+    format!("会议标题：{}\n会议时间：{}{}\n\n转写稿：\n{}", meeting.title, meeting.started_at, context_block, meeting.transcript)
+}
+
+const ANALYSIS_SYSTEM_PROMPT: &str = "你是严谨的中文会议纪要助手。仅根据输入内容整理，不要编造事实、负责人或日期。只输出合法 JSON，不要 Markdown 代码围栏。\n\nJSON 格式要求（严格遵循类型）：\n- theme：字符串（4-12 个字的会议主题短语，如「临港三期沟通协调会」「Q3 预算评审」；不要带日期、标点、书名号，不要以「会议」结尾）\n- minutes：字符串（Markdown 格式的完整会议纪要）\n- decisions：字符串（关键决策，多项用换行分隔；不要用数组）\n- actionItems：数组，每项为 { \"title\": \"字符串\", \"dueDate\": \"字符串或null\" }\n\n行动项只保留明确或高度可信的事项。decisions 和 minutes 必须是字符串，不能用数组。";
+
+/// 调聊天补全接口并解析出 AnalysisResponse（theme + minutes + decisions + actionItems）
+fn request_analysis(settings: &AiSettings, api_key: &str, user_prompt: &str) -> Result<AnalysisResponse, String> {
     let body = json!({
       "model": settings.analysis_model,
       "temperature": 0.2,
       "messages": [
-        { "role": "system", "content": "你是严谨的中文会议纪要助手。仅根据输入内容整理，不要编造事实、负责人或日期。只输出合法 JSON，不要 Markdown 代码围栏。\n\nJSON 格式要求（严格遵循类型）：\n- minutes：字符串（Markdown 格式的完整会议纪要）\n- decisions：字符串（关键决策，多项用换行分隔；不要用数组）\n- actionItems：数组，每项为 { \"title\": \"字符串\", \"dueDate\": \"字符串或null\" }\n\n行动项只保留明确或高度可信的事项。decisions 和 minutes 必须是字符串，不能用数组。" },
-        { "role": "user", "content": prompt }
+        { "role": "system", "content": ANALYSIS_SYSTEM_PROMPT },
+        { "role": "user", "content": user_prompt }
       ]
     });
     let endpoint = format!("{}/chat/completions", settings.base_url.trim_end_matches('/'));
     let response: serde_json::Value = response_error(reqwest::blocking::Client::new().post(endpoint).bearer_auth(api_key).json(&body).send().map_err(app_error)?, "智能纪要服务")?.json().map_err(app_error)?;
     let content = response.pointer("/choices/0/message/content").and_then(serde_json::Value::as_str).ok_or_else(|| "智能纪要服务没有返回可解析的内容".to_string())?;
     let cleaned = clean_json(content);
-    let analysis: AnalysisResponse = serde_json::from_str(&cleaned).map_err(|error| {
+    serde_json::from_str(&cleaned).map_err(|error| {
         let preview: String = cleaned.chars().take(500).collect();
         format!("智能纪要返回的格式无效，请重试：{error}\n\n返回内容前500字符：\n{preview}")
-    })?;
+    })
+}
+
+#[tauri::command]
+fn analyze_meeting(state: State<'_, AppState>, meeting_id: String) -> Result<AnalysisResult, String> {
+    let (settings, api_key) = configured_ai(&state)?;
+    let meeting = { let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?; meeting_by_id(&connection, &meeting_id)? };
+    if meeting.transcript.trim().is_empty() { return Err("请先完成语音转写，或在原始记录中粘贴会议内容".to_string()); }
+    let prompt = build_analysis_user_prompt(&meeting);
+    let analysis = request_analysis(&settings, &api_key, &prompt)?;
     if analysis.minutes.trim().is_empty() { return Err("智能纪要没有生成内容".to_string()); }
+    // 自动命名：仅当标题仍是默认占位时，按「YYYYMMDD-主题」改名；用户改过的标题不动
+    let auto_title = if meeting.title.trim() == "未命名会议" || meeting.title.trim().is_empty() {
+        auto_meeting_title(&meeting.started_at, &analysis.theme)
+    } else { None };
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    connection.execute("UPDATE meetings SET minutes = ?2, decisions = ?3, status = ?4, updated_at = ?5 WHERE id = ?1", params![meeting_id, analysis.minutes.trim(), analysis.decisions.trim(), "已分析", now()]).map_err(app_error)?;
+    if let Some(title) = auto_title {
+        connection.execute("UPDATE meetings SET minutes = ?2, decisions = ?3, status = ?4, title = ?5, updated_at = ?6 WHERE id = ?1", params![meeting_id, analysis.minutes.trim(), analysis.decisions.trim(), "已分析", title, now()]).map_err(app_error)?;
+    } else {
+        connection.execute("UPDATE meetings SET minutes = ?2, decisions = ?3, status = ?4, updated_at = ?5 WHERE id = ?1", params![meeting_id, analysis.minutes.trim(), analysis.decisions.trim(), "已分析", now()]).map_err(app_error)?;
+    }
     // 重新生成纪要前先清掉该会议上一轮的 AI 待办，避免重复；手动添加的待办（origin = manual）保留
     connection.execute("DELETE FROM tasks WHERE source_type = 'meeting' AND source_id = ?1 AND origin = 'ai'", params![meeting_id]).map_err(app_error)?;
     let mut created_tasks = Vec::new();
@@ -1030,119 +1036,18 @@ fn analyze_meeting(state: State<'_, AppState>, meeting_id: String) -> Result<Ana
     Ok(AnalysisResult { meeting: meeting_by_id(&connection, &meeting.id)?, tasks: created_tasks })
 }
 
-fn backups_dir(database_path: &Path) -> Result<PathBuf, String> {
-    Ok(database_path.parent().ok_or_else(|| "无法定位资料库目录".to_string())?.join("backups"))
-}
-
-fn perform_backup(database_path: &Path, recordings_dir: &Path, connection: &Connection) -> Result<PathBuf, String> {
-    let backup_root = backups_dir(database_path)?.join(format!("zhiji-{}", Local::now().format("%Y%m%d-%H%M%S")));
-    fs::create_dir_all(&backup_root).map_err(app_error)?;
-    connection.execute_batch("PRAGMA wal_checkpoint(FULL);").map_err(app_error)?;
-    fs::copy(database_path, backup_root.join("zhiji.sqlite3")).map_err(app_error)?;
-    copy_folder(recordings_dir, &backup_root.join("recordings"))?;
-    Ok(backup_root)
-}
-
-fn list_backup_folders(database_path: &Path) -> Vec<PathBuf> {
-    let Ok(dir) = backups_dir(database_path) else { return Vec::new(); };
-    let Ok(entries) = fs::read_dir(dir) else { return Vec::new(); };
-    let mut folders: Vec<PathBuf> = entries
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.is_dir()
-                && path.file_name().map(|name| name.to_string_lossy().starts_with("zhiji-")).unwrap_or(false)
-                && path.join("zhiji.sqlite3").is_file()
-        })
-        .collect();
-    // 目录名 zhiji-YYYYMMDD-HHMMSS，字典序即时间序；新的在前
-    folders.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
-    folders
-}
-
-fn prune_backups(database_path: &Path, keep: usize) {
-    let folders = list_backup_folders(database_path);
-    for old in folders.into_iter().skip(keep) { let _ = fs::remove_dir_all(old); }
-}
-
-fn auto_backup_if_stale(database_path: PathBuf, recordings_dir: PathBuf) {
-    std::thread::spawn(move || {
-        let result = (|| -> Result<(), String> {
-            let latest = list_backup_folders(&database_path).into_iter().next();
-            let stale = match latest.as_ref().and_then(|path| fs::metadata(path).and_then(|m| m.modified()).ok()) {
-                Some(modified) => modified.elapsed().map(|age| age.as_secs() > 24 * 3600).unwrap_or(true),
-                None => true,
-            };
-            if !stale { return Ok(()); }
-            let connection = Connection::open(&database_path).map_err(app_error)?;
-            perform_backup(&database_path, &recordings_dir, &connection)?;
-            prune_backups(&database_path, 7);
-            Ok(())
-        })();
-        if let Err(error) = result { eprintln!("自动备份失败：{error}"); }
-    });
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BackupInfo { name: String, path: String, size_mb: u64 }
-
-fn folder_size(path: &Path) -> u64 {
-    let Ok(entries) = fs::read_dir(path) else { return 0; };
-    entries.filter_map(|entry| entry.ok()).map(|entry| {
-        let path = entry.path();
-        if path.is_dir() { folder_size(&path) } else { entry.metadata().map(|m| m.len()).unwrap_or(0) }
-    }).sum()
-}
-
+/// AI 重命名：根据转写稿（含会前背景）重新提炼主题，无条件按「YYYYMMDD-主题」覆盖当前标题
 #[tauri::command]
-fn list_backups(state: State<'_, AppState>) -> Result<Vec<BackupInfo>, String> {
-    let folders = list_backup_folders(&state.database_path);
-    Ok(folders.into_iter().map(|path| BackupInfo {
-        name: path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
-        size_mb: folder_size(&path) / 1024 / 1024,
-        path: path.to_string_lossy().to_string(),
-    }).collect())
-}
-
-#[tauri::command]
-fn backup_workspace(state: State<'_, AppState>) -> Result<String, String> {
-    let backup_root = {
-        let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-        perform_backup(&state.database_path, &state.recordings_dir, &connection)?
-    };
-    prune_backups(&state.database_path, 7);
-    Ok(backup_root.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-fn restore_backup(state: State<'_, AppState>, backup_path: String) -> Result<(), String> {
-    let backup_root = PathBuf::from(&backup_path);
-    let backup_db = backup_root.join("zhiji.sqlite3");
-    if !backup_db.is_file() { return Err("所选目录不是有效的知记备份（缺少 zhiji.sqlite3）".to_string()); }
-    // 先校验备份库结构完整，避免把坏库写进正式库
-    {
-        let check = Connection::open(&backup_db).map_err(|error| format!("备份文件无法打开：{error}"))?;
-        check.query_row("SELECT COUNT(*) FROM meetings", [], |row| row.get::<_, i64>(0))
-            .map_err(|_| "备份文件缺少会议数据表，可能不是知记的备份".to_string())?;
-    }
-    {
-        let mut connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-        let source = Connection::open(&backup_db).map_err(app_error)?;
-        let backup = rusqlite::backup::Backup::new(&source, &mut connection).map_err(app_error)?;
-        backup.run_to_completion(64, std::time::Duration::from_millis(20), None).map_err(app_error)?;
-    }
-    let backup_recordings = backup_root.join("recordings");
-    if backup_recordings.is_dir() { copy_folder(&backup_recordings, &state.recordings_dir)?; }
-    Ok(())
-}
-
-#[tauri::command]
-fn delete_entity(state: State<'_, AppState>, entity: String, id: String) -> Result<(), String> {
-    let table = match entity.as_str() { "note" => "notes", "meeting" => "meetings", "task" => "tasks", "notebook" => "notebooks", _ => return Err("不支持的删除对象".to_string()) };
+fn rename_meeting(state: State<'_, AppState>, meeting_id: String) -> Result<Meeting, String> {
+    let (settings, api_key) = configured_ai(&state)?;
+    let meeting = { let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?; meeting_by_id(&connection, &meeting_id)? };
+    if meeting.transcript.trim().is_empty() { return Err("请先完成语音转写，或在原始记录中粘贴会议内容，再来生成名称".to_string()); }
+    let analysis = request_analysis(&settings, &api_key, &build_analysis_user_prompt(&meeting))?;
+    let title = auto_meeting_title(&meeting.started_at, &analysis.theme)
+        .ok_or_else(|| "智能纪要服务没有给出可用的会议主题，请重试".to_string())?;
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    connection.execute(&format!("DELETE FROM {table} WHERE id = ?1"), params![id]).map_err(app_error)?;
-    Ok(())
+    connection.execute("UPDATE meetings SET title = ?2, updated_at = ?3 WHERE id = ?1", params![meeting_id, title, now()]).map_err(app_error)?;
+    meeting_by_id(&connection, &meeting_id)
 }
 
 #[tauri::command]
@@ -1164,7 +1069,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let state = open_state(app.handle())?;
-            auto_backup_if_stale(state.database_path.clone(), state.recordings_dir.clone());
             app.manage(state);
             Ok(())
         })
@@ -1173,12 +1077,11 @@ pub fn run() {
             download_local_asr_model, install_speaker_engine_command,
             save_ai_settings, clear_ai_api_key,
             get_asr_engine_settings, save_asr_engine_settings, clear_cloud_asr_key,
-            create_notebook, create_note, save_note,
             create_meeting, save_meeting, upsert_task,
             begin_recording, append_recording_chunk, finalize_recording, get_recording_path,
             import_meeting_audio, transcribe_meeting,
             transcribe_meeting_with_speakers,
-            analyze_meeting, backup_workspace, list_backups, restore_backup, delete_entity, delete_meeting
+            analyze_meeting, rename_meeting, delete_meeting
         ])
         .run(tauri::generate_context!())
         .expect("启动知记时发生错误");
