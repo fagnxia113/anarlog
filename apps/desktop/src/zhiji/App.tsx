@@ -735,7 +735,6 @@ export function App() {
       <main className="main-content">
         <header className="page-header">
           <div>
-            <p className="eyebrow">个人会议纪要</p>
             <h1>
               {
                 (
@@ -887,48 +886,10 @@ function Home({
   const openTasks = workspace.tasks.filter((task) => !task.completed);
   return (
     <div className="page-grid home-grid">
-      <section className="welcome-card">
-        <svg
-          className="welcome-wave"
-          viewBox="0 0 280 180"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          <g fill="white">
-            {[
-              { x: 8, r: 0.16 }, { x: 28, r: 0.34 }, { x: 48, r: 0.55 },
-              { x: 68, r: 0.78 }, { x: 88, r: 0.46 }, { x: 108, r: 0.92 },
-              { x: 128, r: 0.64 }, { x: 148, r: 0.98 }, { x: 168, r: 0.7 },
-              { x: 188, r: 0.84 }, { x: 208, r: 0.5 }, { x: 228, r: 0.6 },
-              { x: 248, r: 0.32 }, { x: 268, r: 0.2 },
-            ].map(({ x, r }, i) => {
-              const h = r * 168;
-              return (
-                <rect
-                  key={i}
-                  x={x}
-                  y={(180 - h) / 2}
-                  width="6"
-                  height={h}
-                  rx="3"
-                />
-              );
-            })}
-          </g>
-        </svg>
-        <div>
-          <span className="eyebrow">录音即转写 · 智能纪要 · 行动</span>
-          <h2>点一下录音，说完就有纪要。</h2>
-          <p>
-            录音停止后自动转写并生成纪要。本地引擎录音不出本机；选择云端转写时，录音只发送给你在设置中配置的服务商。
-          </p>
-        </div>
-        <div className="welcome-actions">
-          <button className="primary-button" onClick={onMeeting}>
-            <Mic size={17} />
-            开始会议
-          </button>
-        </div>
+      <section className="home-quickbar">
+        <button className="primary-button" onClick={onMeeting}>
+          <Mic size={17} /> 开始会议
+        </button>
       </section>
       <section className="stats-row">
         <Stat
@@ -1204,7 +1165,7 @@ function Meetings({
                   onChange={(event) =>
                     onChange({ ...meeting, context: event.target.value })
                   }
-                  placeholder="会前把会议背景、议程、PPT 大纲或相关材料粘贴到这里。转写和生成智能纪要时会作为参考依据。"
+                  placeholder="粘贴会议背景、议程，作为转写与纪要参考"
                   rows={4}
                 />
               )}
@@ -1300,7 +1261,7 @@ function Meetings({
                   onChange={(event) =>
                     onChange({ ...meeting, notes: event.target.value })
                   }
-                  placeholder="会议进行中，把你的观察、待确认点、临时想法记在这里…"
+                  placeholder="随时记下你的观察与想法"
                 />
               </section>
               <section className="meeting-tabs">
@@ -1350,7 +1311,7 @@ function Meetings({
                           onChange={(event) =>
                             onChange({ ...meeting, notes: event.target.value })
                           }
-                          placeholder="会议进行中，把你的观察、待确认点、临时想法记在这里…"
+                          placeholder="随时记下你的观察与想法"
                           style={{ minHeight: 320 }}
                         />
                       </div>
@@ -1364,7 +1325,7 @@ function Meetings({
                           hint="智能分析会生成主题、关键讨论、结论、风险与下一步"
                           value={meeting.minutes}
                           onChange={(minutes) => onChange({ ...meeting, minutes })}
-                          placeholder="点击上方「生成智能纪要」，AI 会基于转写稿自动生成…"
+                          placeholder="生成纪要后显示在这里"
                         />
                       ) : (
                         <div className="tab-panel-empty">
@@ -1379,7 +1340,7 @@ function Meetings({
                       hint="本地语音转写会写入这里；也可以粘贴文字记录"
                       value={meeting.transcript}
                       onChange={(transcript) => onChange({ ...meeting, transcript })}
-                      placeholder="录音转写后会显示在这里…"
+                      placeholder="转写完成后显示在这里"
                     />
                   )}
                   {activeTab === "speakers" &&
@@ -1403,7 +1364,7 @@ function Meetings({
                         hint="只保留明确决定；不确定项会标记待确认"
                         value={meeting.decisions}
                         onChange={(decisions) => onChange({ ...meeting, decisions })}
-                        placeholder="例如：下周三前交付第一版原型"
+                        placeholder="例如：周五前交付初稿"
                       />
                       <div>
                         <div className="section-heading">
@@ -1976,7 +1937,7 @@ function SettingsView({
         <div>
           <h3>引擎选择</h3>
           <p>
-            本地引擎离线免费、录音不出本机，但首次需下载模型且转写较慢；云端引擎速度快、不占本机算力，整场录音会发送给你配置的服务商。
+            本地：离线免费、录音不出本机，首次需下载模型。云端：更快，整场录音发往你配置的服务商。
           </p>
         </div>
         <div className="engine-switch">
@@ -2005,7 +1966,7 @@ function SettingsView({
         </div>
         {cloud && !asrEngine.cloudKeySaved && (
           <small className="runtime-warning">
-            填写下方密钥并点击保存后，云端转写才会生效；未生效前仍使用本地引擎。
+            保存密钥后，云端转写生效。
           </small>
         )}
       </section>

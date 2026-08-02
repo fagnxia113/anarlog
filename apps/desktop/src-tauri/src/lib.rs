@@ -15,11 +15,11 @@ const SENSEVOICE_MODEL_NAME: &str = "sensevoice-small-q8.gguf";
 const FSMN_VAD_MODEL_NAME: &str = "fsmn-vad.gguf";
 const SENSEVOICE_MODEL_URLS: &[&str] = &[
     "https://modelscope.cn/models/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/master/sensevoice-small-q8.gguf",
-    "https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf",
+    "https://hf-mirror.com/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf",
 ];
 const FSMN_VAD_MODEL_URLS: &[&str] = &[
     "https://modelscope.cn/models/FunAudioLLM/fsmn-vad-GGUF/resolve/master/fsmn-vad.gguf",
-    "https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf",
+    "https://hf-mirror.com/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf",
 ];
 const SENSEVOICE_EXECUTABLE: &str = "llama-funasr-sensevoice.exe";
 const FFMPEG_EXECUTABLE: &str = "ffmpeg.exe";
@@ -399,25 +399,48 @@ fn clean_json(content: &str) -> String {
 }
 
 fn download_file(url: &str, destination: &Path) -> Result<(), String> {
-    let temporary = destination.with_file_name(format!("{}.part", destination.file_name().and_then(|name| name.to_str()).unwrap_or("model")));
-    let result = (|| {
-        let client = reqwest::blocking::Client::builder()
-            .user_agent(MODEL_DOWNLOAD_USER_AGENT)
-            .build()
-            .map_err(app_error)?;
-        let response = client
-            .get(url)
-            .header(reqwest::header::ACCEPT, "application/octet-stream,application/*;q=0.9,*/*;q=0.8")
-            .send()
-            .map_err(app_error)?;
-        let mut body = response_error(response, "模型下载服务")?;
-        let mut output = fs::File::create(&temporary).map_err(app_error)?;
-        io::copy(&mut body, &mut output).map_err(app_error)?;
-        output.sync_all().map_err(app_error)?;
-        fs::rename(&temporary, destination).map_err(app_error)
-    })();
-    if result.is_err() { let _ = fs::remove_file(&temporary); }
-    result
+    let temporary = destination.with_file_name(format!(
+        "{}.part",
+        destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("model")
+    ));
+    let mut last_error = String::new();
+    for attempt in 0..3 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_secs(2u64.saturating_pow(attempt)));
+        }
+        let result = (|| {
+            let client = reqwest::blocking::Client::builder()
+                .user_agent(MODEL_DOWNLOAD_USER_AGENT)
+                .connect_timeout(std::time::Duration::from_secs(15))
+                .timeout(std::time::Duration::from_secs(600))
+                .build()
+                .map_err(app_error)?;
+            let response = client
+                .get(url)
+                .header(
+                    reqwest::header::ACCEPT,
+                    "application/octet-stream,application/*;q=0.9,*/*;q=0.8",
+                )
+                .send()
+                .map_err(app_error)?;
+            let mut body = response_error(response, "模型下载服务")?;
+            let mut output = fs::File::create(&temporary).map_err(app_error)?;
+            io::copy(&mut body, &mut output).map_err(app_error)?;
+            output.sync_all().map_err(app_error)?;
+            fs::rename(&temporary, destination).map_err(app_error)
+        })();
+        match result {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                last_error = error;
+                let _ = fs::remove_file(&temporary);
+            }
+        }
+    }
+    Err(format!("下载失败（已重试 3 次）：{last_error}"))
 }
 
 fn download_model(sources: &[&str], destination: &Path) -> Result<(), String> {
