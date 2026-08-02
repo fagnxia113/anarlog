@@ -770,7 +770,7 @@ fn save_ai_settings(state: State<'_, AppState>, settings: AiSettingsInput) -> Re
 
 #[tauri::command]
 fn clear_ai_api_key() -> Result<(), String> {
-    match ai_key()?.delete_credential() { Ok(()) | Err(keyring::Error::NoEntry) => Ok(()), Err(error) => Err(app_error(error)) }
+    match ai_key()?.delete_password() { Ok(()) | Err(keyring::Error::NoEntry) => Ok(()), Err(error) => Err(app_error(error)) }
 }
 
 #[tauri::command]
@@ -798,7 +798,7 @@ fn save_asr_engine_settings(state: State<'_, AppState>, settings: AsrEngineSetti
 
 #[tauri::command]
 fn clear_cloud_asr_key() -> Result<(), String> {
-    match cloud_asr_key()?.delete_credential() { Ok(()) | Err(keyring::Error::NoEntry) => Ok(()), Err(error) => Err(app_error(error)) }
+    match cloud_asr_key()?.delete_password() { Ok(()) | Err(keyring::Error::NoEntry) => Ok(()), Err(error) => Err(app_error(error)) }
 }
 
 #[tauri::command]
