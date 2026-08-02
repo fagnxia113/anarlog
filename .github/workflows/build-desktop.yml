@@ -39,9 +39,6 @@ jobs:
       - name: Install dependencies
         run: pnpm --filter @zhiji/desktop install
 
-      - name: Build frontend
-        run: pnpm -F @zhiji/desktop build
-
       - name: Bundle local Chinese ASR runtime
         shell: pwsh
         run: |
@@ -84,30 +81,17 @@ jobs:
             Copy-Item -Path $source -Destination (Join-Path $target $dll) -Force
           }
 
-      - name: Build Tauri app (signs updater artifacts with TAURI_SIGNING_PRIVATE_KEY)
+      - name: Build, sign and release with tauri-action
+        uses: tauri-apps/tauri-action@v0
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: pnpm exec tauri build --ci --bundles nsis --no-sign
-        working-directory: apps/desktop
-
-      - name: Upload NSIS installer + updater artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: zhiji-windows-nsis
-          path: |
-            apps/desktop/src-tauri/target/**/bundle/nsis/*.exe
-            apps/desktop/src-tauri/target/**/bundle/nsis/*.sig
-            apps/desktop/src-tauri/target/**/bundle/nsis/latest.json
-          if-no-files-found: error
-
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            apps/desktop/src-tauri/target/**/bundle/nsis/*.exe
-            apps/desktop/src-tauri/target/**/bundle/nsis/*.sig
-            apps/desktop/src-tauri/target/**/bundle/nsis/latest.json
-          generate_release_notes: true
-        env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          includeRelease: ${{ startsWith(github.ref, 'refs/tags/') }}
+          tagName: ${{ github.ref_name }}
+          releaseName: "知记 v__VERSION__"
+          releaseBody: "自动更新版本。安装此 NSIS 包后，后续版本将在应用内自动更新。"
+          releaseDraft: false
+          prerelease: false
+          args: "--ci --bundles nsis --no-sign"

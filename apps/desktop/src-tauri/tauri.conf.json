@@ -61,7 +61,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhBUZ8+93Dkme8HUKvhsETFd/s/i+ZGABCEaV7OKm/54Exbd6Nx96MwYC62BFaEaTbt/MRz78LXKgJNXIKptvSl33lroq2oanVAId7Ty++qtRiy39A98EK+xvDlnFRL2Vdtat6Fv2tevGx9UfmDWai2FunDVAdWEwtPi1eumx+/9tf/oEijtiNckn64UGyqHqKC5nAT1N/BeG8KPM/xc/c62ce78zu6ZgoZl8vDBpDuf+HzDA5WcBDtpGhgCxmLrm+fS7gxe0mSIEFt2+QAGYAVLVfkZQRtHsESTrAJp/iXLJS6T1dYDfrKzx39+bZ8oiOF4f+LfHn0UOddvYuscgZwIDAQAB",
+      "pubkey": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAudrN9w2Apd71Ime6FXWukpnnm3rH/+UgRRSf2p+4+ZTLqnZlyAqOT97wKgCWD0enxFZkCCxaX2tI5wmanAhxZA7XCmYjFmFmQ/BhM06jLNrDWsIEbCInZcCukAU5FI5N/C+FJLggEBq+e6pmGwQcQpbhpMG55wuMj1MfFWNNK2lYsgwG0OdUvx76It9oiwuR1gmCuM8y89Ffm+RQBhk07omTVQxy/Xr4EiIc5/pDekPXATAIce4wLka0uopuDBDyrxC2Z7AIYl5I8CGyAzot6elZWEViqIwnEcMeg3USX7bMw90Y7YWXBcGbdqNVy2t2jjSF/u1jNKm6Z5MxJRgOXQIDAQAB",
       "endpoints": [
         "https://github.com/fagnxia113/anarlog/releases/latest/download/latest.json"
       ]
