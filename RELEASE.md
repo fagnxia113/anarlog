@@ -58,6 +58,7 @@
 - [ ] 安装新包后：启动自动弹出「发现新版本」提示
 - [ ] 设置页「检查更新」按钮可用、能正确报告「已是最新」
 - [ ] 从旧版本打开：自动更新链路（下载 → `.sig` 校验 → 安装重启）正常
+- [ ] 设置页「检查更新」**不再报 `not allowed by ACL`**（确认 `src-tauri/capabilities/default.json` 已授权 `updater:default` + `process:default`；漏授权会直接导致检查更新被 Tauri 运行时拒绝）
 
 ## 5. 踩坑速查（都已实际踩过，勿再犯）
 
@@ -67,6 +68,7 @@
 4. **版本号两处必须同步**：只改一处会导致 NSIS 安装包版本与 updater 期望版本不一致，自动更新可能不触发或混乱。
 5. **签名密钥配对（最隐蔽的坑）**：`TAURI_SIGNING_PRIVATE_KEY` 这个 Secret 的内容**必须是本地 `C:\Users\12207\.tauri\zhiji.key` 的完整正文**（含 `-----BEGIN RSA PRIVATE KEY-----` 与 `-----END RSA PRIVATE KEY-----` 两行，中间 base64 全部，末尾带换行，无 BOM、无多余空格）。只要内容不完整/不对，Tauri 签名会**静默失败（仅 warning）**，build 照样 success，但 Release 里**只有 `.exe`、没有 `.sig` 也没有 `latest.json`**——自动更新等于没接上，且 CI 不会报错。验证方法：本地用 `openssl rsa -in ~/.tauri/zhiji.key -pubout` 派生的公钥，须与 `tauri.conf.json` 的 `updater.pubkey` 逐字节一致。
 6. **SmartScreen 警告**：NSIS 安装包没有 Authenticode 代码签名证书，Windows 首次安装可能弹「未知发布者」。这与 Tauri 的 `.sig`（仅防更新包被篡改）是两回事，点「仍要运行」即可，不影响自动更新链路。
+7. **插件 capability 授权（隐藏的 ACL 坑）**：Tauri v2 对**插件命令默认 deny**，必须在 `src-tauri/capabilities/default.json` 的 `permissions` 里显式 allow。每注册一个插件（updater / process / dialog 等），都要加对应的 `<plugin>:default` 或具体 `allow-*` 权限，否则运行时报 `Command plugin:xxx|yyy not allowed by ACL`。应用**自己的** `#[tauri::command]` 默认 allow（所以录音/保存一直正常），唯独插件命令会被卡。已踩：v1.1.4 之前漏了 `updater:default` + `process:default`，导致「检查更新」直接报 ACL 错。改完权限必须发新版本号（updater 按版本号判更新）。
 
 ## 6. 重生成签名密钥（仅在私钥泄露/丢失时）
 
@@ -89,3 +91,5 @@
 - **v1.1.1**：UI 减字收敛 + 本地说话人引擎下载修复（超时/重试/HF 镜像）
 - **v1.1.2**：应用内自动更新（GitHub Releases 驱动）；CI 经多轮修复（lockfile、`tauri` script、updater `Builder` API）后稳定。
   注意：v1.1.2 首次发布时因 GitHub Secret 私钥内容不完整，Release 仅有 `.exe`，缺 `.sig`/`latest.json`，自动更新当时不可用；须修正 Secret 后重新发版补全。
+- **v1.1.3**：微信风重设计（图标栏 + 微信绿 #07C160 + 首页瘦身 + 状态圆点 + 删渐变）。
+- **v1.1.4**：修复「检查更新」报 `not allowed by ACL`——`capabilities/default.json` 补 `updater:default` + `process:default` 授权。
