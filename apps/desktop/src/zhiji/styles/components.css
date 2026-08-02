@@ -294,7 +294,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   font-size: 12px;
 }
 
-.editor-buttons { display: flex; gap: var(--space-2); }
+.editor-buttons { display: flex; gap: var(--space-2); align-items: center; }
+
+.autosave-hint {
+  color: var(--text-faint);
+  font-size: 11px;
+  margin: 0 var(--space-2) 0 0;
+  white-space: nowrap;
+}
 
 /* —— 录音状态条 —— */
 .recording-bar {

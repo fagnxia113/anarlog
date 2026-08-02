@@ -77,9 +77,21 @@ struct Meeting {
     updated_at: String,
 }
 
+fn default_task_origin() -> String { "manual".to_string() }
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Task { id: String, title: String, source_type: Option<String>, source_id: Option<String>, completed: bool, due_date: Option<String>, created_at: String }
+struct Task {
+    id: String,
+    title: String,
+    source_type: Option<String>,
+    source_id: Option<String>,
+    completed: bool,
+    due_date: Option<String>,
+    created_at: String,
+    #[serde(default = "default_task_origin")]
+    origin: String,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -92,6 +104,24 @@ struct AiSettings { base_url: String, analysis_model: String, is_configured: boo
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AiSettingsInput { base_url: String, analysis_model: String, api_key: Option<String> }
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AsrEngineSettings {
+    provider: String,
+    cloud_base_url: String,
+    cloud_model: String,
+    cloud_key_saved: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AsrEngineSettingsInput {
+    provider: String,
+    cloud_base_url: String,
+    cloud_model: String,
+    api_key: Option<String>,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -208,6 +238,7 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
         ",
     )?;
     ensure_column(&connection, "meetings", "speaker_segments", "TEXT NOT NULL DEFAULT '[]'")?;
+    ensure_column(&connection, "tasks", "origin", "TEXT NOT NULL DEFAULT 'manual'")?;
     clean_stored_transcripts(&connection)?;
     let count: i64 = connection.query_row("SELECT COUNT(*) FROM notebooks", [], |row| row.get(0))?;
     if count == 0 {
@@ -235,13 +266,55 @@ fn setting(connection: &Connection, key: &str, default: &str) -> Result<String, 
 }
 
 fn ai_key() -> Result<keyring::Entry, String> { keyring::Entry::new("com.zhiji.meetnote", "ai-api-key").map_err(app_error) }
+fn cloud_asr_key() -> Result<keyring::Entry, String> { keyring::Entry::new("com.zhiji.meetnote", "cloud-asr-api-key").map_err(app_error) }
 
 fn has_ai_key() -> bool {
     match ai_key().and_then(|entry| entry.get_password().map_err(app_error)) { Ok(value) => !value.trim().is_empty(), Err(_) => false }
 }
 
+fn has_cloud_asr_key() -> bool {
+    match cloud_asr_key().and_then(|entry| entry.get_password().map_err(app_error)) { Ok(value) => !value.trim().is_empty(), Err(_) => false }
+}
+
 fn ai_settings(connection: &Connection) -> Result<AiSettings, String> {
     Ok(AiSettings { base_url: setting(connection, "ai_base_url", "https://api.openai.com/v1")?, analysis_model: setting(connection, "ai_analysis_model", "gpt-4o-mini")?, is_configured: has_ai_key() })
+}
+
+fn asr_engine_settings(connection: &Connection) -> Result<AsrEngineSettings, String> {
+    Ok(AsrEngineSettings {
+        provider: setting(connection, "asr_provider", "local")?,
+        cloud_base_url: setting(connection, "cloud_asr_base_url", "https://api.siliconflow.cn/v1")?,
+        cloud_model: setting(connection, "cloud_asr_model", "FunAudioLLM/SenseVoiceSmall")?,
+        cloud_key_saved: has_cloud_asr_key(),
+    })
+}
+
+fn run_cloud_asr(base_url: String, model: String, api_key: String, audio_path: String) -> Result<String, String> {
+    if !base_url.starts_with("https://") && !base_url.starts_with("http://") { return Err("云端转写服务地址必须以 http:// 或 https:// 开头".to_string()); }
+    let endpoint = format!("{}/audio/transcriptions", base_url.trim_end_matches('/'));
+    let file_name = PathBuf::from(&audio_path)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "recording.webm".to_string());
+    let file_bytes = fs::read(&audio_path).map_err(|error| format!("读取录音失败：{error}"))?;
+    let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
+        .file_name(file_name)
+        .mime_str("application/octet-stream")
+        .map_err(app_error)?;
+    let form = reqwest::blocking::multipart::Form::new()
+        .text("model", model)
+        .text("response_format", "json")
+        .part("file", part);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(1800))
+        .build()
+        .map_err(app_error)?;
+    let response = client.post(endpoint).bearer_auth(api_key).multipart(form).send().map_err(app_error)?;
+    let response = response_error(response, "云端转写服务")?;
+    let body: serde_json::Value = response.json().map_err(app_error)?;
+    let transcript = body.get("text").and_then(serde_json::Value::as_str).unwrap_or("").trim().to_string();
+    if transcript.is_empty() { return Err("云端转写服务没有返回可用的转写文本".to_string()); }
+    Ok(transcript)
 }
 
 fn local_asr_status(state: &AppState) -> LocalAsrStatus {
@@ -638,8 +711,8 @@ fn meetings(connection: &Connection) -> Result<Vec<Meeting>, String> {
 }
 
 fn tasks(connection: &Connection) -> Result<Vec<Task>, String> {
-    let mut statement = connection.prepare("SELECT id, title, source_type, source_id, completed, due_date, created_at FROM tasks ORDER BY completed ASC, created_at DESC").map_err(app_error)?;
-    statement.query_map([], |row| Ok(Task { id: row.get(0)?, title: row.get(1)?, source_type: row.get(2)?, source_id: row.get(3)?, completed: row.get::<_, i64>(4)? != 0, due_date: row.get(5)?, created_at: row.get(6)? })).map_err(app_error)?.collect::<Result<Vec<_>, _>>().map_err(app_error)
+    let mut statement = connection.prepare("SELECT id, title, source_type, source_id, completed, due_date, created_at, origin FROM tasks ORDER BY completed ASC, created_at DESC").map_err(app_error)?;
+    statement.query_map([], |row| Ok(Task { id: row.get(0)?, title: row.get(1)?, source_type: row.get(2)?, source_id: row.get(3)?, completed: row.get::<_, i64>(4)? != 0, due_date: row.get(5)?, created_at: row.get(6)?, origin: row.get(7)? })).map_err(app_error)?.collect::<Result<Vec<_>, _>>().map_err(app_error)
 }
 
 #[tauri::command]
@@ -701,6 +774,34 @@ fn clear_ai_api_key() -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_asr_engine_settings(state: State<'_, AppState>) -> Result<AsrEngineSettings, String> {
+    let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+    asr_engine_settings(&connection)
+}
+
+#[tauri::command]
+fn save_asr_engine_settings(state: State<'_, AppState>, settings: AsrEngineSettingsInput) -> Result<AsrEngineSettings, String> {
+    let provider = settings.provider.trim().to_string();
+    if provider != "local" && provider != "cloud" { return Err("转写引擎只能是 local 或 cloud".to_string()); }
+    let base_url = settings.cloud_base_url.trim_end_matches('/').to_string();
+    if provider == "cloud" {
+        if !base_url.starts_with("https://") && !base_url.starts_with("http://") { return Err("云端转写服务地址必须以 http:// 或 https:// 开头".to_string()); }
+        if settings.cloud_model.trim().is_empty() { return Err("请填写云端转写模型名称".to_string()); }
+    }
+    if let Some(api_key) = settings.api_key.filter(|value| !value.trim().is_empty()) { cloud_asr_key()?.set_password(api_key.trim()).map_err(app_error)?; }
+    let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+    for (key, value) in [("asr_provider", provider), ("cloud_asr_base_url", base_url), ("cloud_asr_model", settings.cloud_model.trim().to_string())] {
+        connection.execute("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params![key, value]).map_err(app_error)?;
+    }
+    asr_engine_settings(&connection)
+}
+
+#[tauri::command]
+fn clear_cloud_asr_key() -> Result<(), String> {
+    match cloud_asr_key()?.delete_credential() { Ok(()) | Err(keyring::Error::NoEntry) => Ok(()), Err(error) => Err(app_error(error)) }
+}
+
+#[tauri::command]
 fn create_notebook(state: State<'_, AppState>, name: String, color: String) -> Result<Notebook, String> {
     let notebook = Notebook { id: id(), name, color, created_at: now() };
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
@@ -742,45 +843,64 @@ fn save_meeting(state: State<'_, AppState>, meeting: Meeting) -> Result<(), Stri
 #[tauri::command]
 fn upsert_task(state: State<'_, AppState>, task: Task) -> Result<(), String> {
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    connection.execute("INSERT INTO tasks (id, title, source_type, source_id, completed, due_date, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(id) DO UPDATE SET title = excluded.title, source_type = excluded.source_type, source_id = excluded.source_id, completed = excluded.completed, due_date = excluded.due_date", params![task.id, task.title, task.source_type, task.source_id, task.completed, task.due_date, task.created_at]).map_err(app_error)?;
+    connection.execute("INSERT INTO tasks (id, title, source_type, source_id, completed, due_date, created_at, origin) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) ON CONFLICT(id) DO UPDATE SET title = excluded.title, source_type = excluded.source_type, source_id = excluded.source_id, completed = excluded.completed, due_date = excluded.due_date", params![task.id, task.title, task.source_type, task.source_id, task.completed, task.due_date, task.created_at, task.origin]).map_err(app_error)?;
+    Ok(())
+}
+
+fn recording_file(recordings_dir: &Path, meeting_id: &str) -> Result<PathBuf, String> {
+    // meeting_id 来自前端，只允许安全字符，防止路径穿越
+    if meeting_id.is_empty() || !meeting_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err("会议标识无效".to_string());
+    }
+    Ok(recordings_dir.join(format!("{meeting_id}.webm")))
+}
+
+#[tauri::command]
+fn begin_recording(state: State<'_, AppState>, meeting_id: String) -> Result<(), String> {
+    let path = recording_file(&state.recordings_dir, &meeting_id)?;
+    let existing_audio = {
+        let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+        meeting_by_id(&connection, &meeting_id)?.audio_path
+    };
+    // 重新录音前删除该会议在应用内管理的旧录音（导入的或上次录的），避免占用空间
+    if let Some(old_audio) = existing_audio.as_deref() {
+        if old_audio != path.to_string_lossy() { remove_managed_recording(&state.recordings_dir, old_audio); }
+    }
+    fs::File::create(&path).map_err(|error| format!("无法创建录音文件：{error}"))?;
     Ok(())
 }
 
 #[tauri::command]
-fn save_recording(state: State<'_, AppState>, meeting_id: String, data_url: String, duration_seconds: i64) -> Result<String, String> {
+fn append_recording_chunk(state: State<'_, AppState>, meeting_id: String, data_url: String) -> Result<(), String> {
     let encoded = data_url.split_once(',').map_or(data_url.as_str(), |(_, data)| data);
     let audio = STANDARD.decode(encoded).map_err(app_error)?;
-    let path = state.recordings_dir.join(format!("{meeting_id}-{}.webm", Local::now().timestamp()));
-    fs::write(&path, audio).map_err(app_error)?;
-    let path_string = path.to_string_lossy().to_string();
-    let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    connection.execute("UPDATE meetings SET audio_path = ?2, duration_seconds = ?3, status = ?4, updated_at = ?5 WHERE id = ?1", params![meeting_id, path_string, duration_seconds, "已录音", now()]).map_err(app_error)?;
-    Ok(path_string)
-}
-
-fn audio_mime_type(path: &str) -> &'static str {
-    let ext = path.rsplit('.').next().map(|e| e.to_ascii_lowercase());
-    match ext.as_deref() {
-        Some("webm") => "audio/webm",
-        Some("mp3") => "audio/mpeg",
-        Some("wav") => "audio/wav",
-        Some("m4a") | Some("mp4") => "audio/mp4",
-        Some("aac") => "audio/aac",
-        Some("flac") => "audio/flac",
-        Some("ogg") => "audio/ogg",
-        Some("opus") => "audio/opus",
-        _ => "audio/mpeg",
-    }
+    if audio.is_empty() { return Ok(()); }
+    let path = recording_file(&state.recordings_dir, &meeting_id)?;
+    let mut file = fs::OpenOptions::new().create(true).append(true).open(&path)
+        .map_err(|error| format!("无法写入录音文件：{error}"))?;
+    file.write_all(&audio).map_err(|error| format!("录音写入失败：{error}"))?;
+    Ok(())
 }
 
 #[tauri::command]
-fn read_recording(state: State<'_, AppState>, meeting_id: String) -> Result<String, String> {
+fn finalize_recording(state: State<'_, AppState>, meeting_id: String, duration_seconds: i64) -> Result<Meeting, String> {
+    let path = recording_file(&state.recordings_dir, &meeting_id)?;
+    let size = fs::metadata(&path).map_err(|error| format!("录音文件不存在：{error}"))?.len();
+    if size == 0 { let _ = fs::remove_file(&path); return Err("没有录到任何声音，请检查麦克风后重试".to_string()); }
+    let probed = probe_audio_duration(&state.ffmpeg_dir, &path);
+    let final_duration = if probed > 0 { probed } else { duration_seconds };
+    let path_string = path.to_string_lossy().to_string();
+    let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+    connection.execute("UPDATE meetings SET audio_path = ?2, duration_seconds = ?3, status = ?4, updated_at = ?5 WHERE id = ?1", params![meeting_id, path_string, final_duration, "已录音", now()]).map_err(app_error)?;
+    meeting_by_id(&connection, &meeting_id)
+}
+
+#[tauri::command]
+fn get_recording_path(state: State<'_, AppState>, meeting_id: String) -> Result<String, String> {
     let meeting = { let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?; meeting_by_id(&connection, &meeting_id)? };
     let audio_path = meeting.audio_path.ok_or_else(|| "该会议没有录音".to_string())?;
     if !PathBuf::from(&audio_path).is_file() { return Err("录音文件不存在，可能已被移动或删除".to_string()); }
-    let bytes = fs::read(&audio_path).map_err(|error| format!("读取录音失败：{error}"))?;
-    let mime = audio_mime_type(&audio_path);
-    Ok(format!("data:{mime};base64,{}", STANDARD.encode(&bytes)))
+    Ok(audio_path)
 }
 
 #[tauri::command]
@@ -817,15 +937,31 @@ fn import_meeting_audio(state: State<'_, AppState>, meeting_id: String, audio_pa
     Ok(meeting)
 }
 
+async fn transcribe_audio(state: &State<'_, AppState>, meeting: &Meeting) -> Result<String, String> {
+    let audio_path = meeting.audio_path.clone().ok_or_else(|| "请先完成录音，再开始语音转写".to_string())?;
+    let engine = {
+        let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+        asr_engine_settings(&connection)?
+    };
+    if engine.provider == "cloud" {
+        let api_key = cloud_asr_key()?.get_password().map_err(|_| "请先在设置中保存云端转写 API 密钥".to_string())?;
+        if api_key.trim().is_empty() { return Err("请先在设置中保存云端转写 API 密钥".to_string()); }
+        tauri::async_runtime::spawn_blocking(move || run_cloud_asr(engine.cloud_base_url, engine.cloud_model, api_key, audio_path))
+            .await.map_err(|error| format!("云端转写任务中断：{error}"))?
+    } else {
+        let runtime_dir = state.runtime_dir.clone();
+        let ffmpeg_dir = state.ffmpeg_dir.clone();
+        let models_dir = state.models_dir.clone();
+        let vcrt_dir = state.vcrt_dir.clone();
+        tauri::async_runtime::spawn_blocking(move || run_local_asr(runtime_dir, ffmpeg_dir, models_dir, vcrt_dir, audio_path))
+            .await.map_err(|error| format!("本地转写任务中断：{error}"))?
+    }
+}
+
 #[tauri::command]
 async fn transcribe_meeting(state: State<'_, AppState>, meeting_id: String) -> Result<Meeting, String> {
     let meeting = { let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?; meeting_by_id(&connection, &meeting_id)? };
-    let audio_path = meeting.audio_path.clone().ok_or_else(|| "请先完成录音，再开始语音转写".to_string())?;
-    let runtime_dir = state.runtime_dir.clone();
-    let ffmpeg_dir = state.ffmpeg_dir.clone();
-    let models_dir = state.models_dir.clone();
-    let vcrt_dir = state.vcrt_dir.clone();
-    let transcript = tauri::async_runtime::spawn_blocking(move || run_local_asr(runtime_dir, ffmpeg_dir, models_dir, vcrt_dir, audio_path)).await.map_err(|error| format!("本地转写任务中断：{error}"))??;
+    let transcript = transcribe_audio(&state, &meeting).await?;
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
     connection.execute("UPDATE meetings SET transcript = ?2, status = ?3, updated_at = ?4 WHERE id = ?1", params![meeting_id, transcript, "已转写", now()]).map_err(app_error)?;
     meeting_by_id(&connection, &meeting.id)
@@ -834,6 +970,17 @@ async fn transcribe_meeting(state: State<'_, AppState>, meeting_id: String) -> R
 #[tauri::command]
 async fn transcribe_meeting_with_speakers(state: State<'_, AppState>, meeting_id: String) -> Result<Meeting, String> {
     let meeting = { let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?; meeting_by_id(&connection, &meeting_id)? };
+    let provider = {
+        let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+        asr_engine_settings(&connection)?.provider
+    };
+    // 云端引擎暂不做说话人分离：退化为纯云端转写，由前端提示用户
+    if provider == "cloud" {
+        let transcript = transcribe_audio(&state, &meeting).await?;
+        let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+        connection.execute("UPDATE meetings SET transcript = ?2, status = ?3, updated_at = ?4 WHERE id = ?1", params![meeting_id, transcript, "已转写", now()]).map_err(app_error)?;
+        return meeting_by_id(&connection, &meeting.id);
+    }
     let audio_path = meeting.audio_path.clone().ok_or_else(|| "请先完成录音，再开始说话人分离".to_string())?;
     let engine_dir = state.speaker_engine_dir.clone();
     let models_dir = state.speaker_models_dir.clone();
@@ -872,25 +1019,122 @@ fn analyze_meeting(state: State<'_, AppState>, meeting_id: String) -> Result<Ana
     if analysis.minutes.trim().is_empty() { return Err("智能纪要没有生成内容".to_string()); }
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
     connection.execute("UPDATE meetings SET minutes = ?2, decisions = ?3, status = ?4, updated_at = ?5 WHERE id = ?1", params![meeting_id, analysis.minutes.trim(), analysis.decisions.trim(), "已分析", now()]).map_err(app_error)?;
+    // 重新生成纪要前先清掉该会议上一轮的 AI 待办，避免重复；手动添加的待办（origin = manual）保留
+    connection.execute("DELETE FROM tasks WHERE source_type = 'meeting' AND source_id = ?1 AND origin = 'ai'", params![meeting_id]).map_err(app_error)?;
     let mut created_tasks = Vec::new();
     for item in analysis.action_items.into_iter().filter(|item| !item.title.trim().is_empty()) {
-        let task = Task { id: id(), title: item.title.trim().to_string(), source_type: Some("meeting".to_string()), source_id: Some(meeting_id.clone()), completed: false, due_date: item.due_date.filter(|date| !date.trim().is_empty()), created_at: now() };
-        connection.execute("INSERT INTO tasks (id, title, source_type, source_id, completed, due_date, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", params![task.id, task.title, task.source_type, task.source_id, task.completed, task.due_date, task.created_at]).map_err(app_error)?;
+        let task = Task { id: id(), title: item.title.trim().to_string(), source_type: Some("meeting".to_string()), source_id: Some(meeting_id.clone()), completed: false, due_date: item.due_date.filter(|date| !date.trim().is_empty()), created_at: now(), origin: "ai".to_string() };
+        connection.execute("INSERT INTO tasks (id, title, source_type, source_id, completed, due_date, created_at, origin) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", params![task.id, task.title, task.source_type, task.source_id, task.completed, task.due_date, task.created_at, task.origin]).map_err(app_error)?;
         created_tasks.push(task);
     }
     Ok(AnalysisResult { meeting: meeting_by_id(&connection, &meeting.id)?, tasks: created_tasks })
 }
 
+fn backups_dir(database_path: &Path) -> Result<PathBuf, String> {
+    Ok(database_path.parent().ok_or_else(|| "无法定位资料库目录".to_string())?.join("backups"))
+}
+
+fn perform_backup(database_path: &Path, recordings_dir: &Path, connection: &Connection) -> Result<PathBuf, String> {
+    let backup_root = backups_dir(database_path)?.join(format!("zhiji-{}", Local::now().format("%Y%m%d-%H%M%S")));
+    fs::create_dir_all(&backup_root).map_err(app_error)?;
+    connection.execute_batch("PRAGMA wal_checkpoint(FULL);").map_err(app_error)?;
+    fs::copy(database_path, backup_root.join("zhiji.sqlite3")).map_err(app_error)?;
+    copy_folder(recordings_dir, &backup_root.join("recordings"))?;
+    Ok(backup_root)
+}
+
+fn list_backup_folders(database_path: &Path) -> Vec<PathBuf> {
+    let Ok(dir) = backups_dir(database_path) else { return Vec::new(); };
+    let Ok(entries) = fs::read_dir(dir) else { return Vec::new(); };
+    let mut folders: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_dir()
+                && path.file_name().map(|name| name.to_string_lossy().starts_with("zhiji-")).unwrap_or(false)
+                && path.join("zhiji.sqlite3").is_file()
+        })
+        .collect();
+    // 目录名 zhiji-YYYYMMDD-HHMMSS，字典序即时间序；新的在前
+    folders.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    folders
+}
+
+fn prune_backups(database_path: &Path, keep: usize) {
+    let folders = list_backup_folders(database_path);
+    for old in folders.into_iter().skip(keep) { let _ = fs::remove_dir_all(old); }
+}
+
+fn auto_backup_if_stale(database_path: PathBuf, recordings_dir: PathBuf) {
+    std::thread::spawn(move || {
+        let result = (|| -> Result<(), String> {
+            let latest = list_backup_folders(&database_path).into_iter().next();
+            let stale = match latest.as_ref().and_then(|path| fs::metadata(path).and_then(|m| m.modified()).ok()) {
+                Some(modified) => modified.elapsed().map(|age| age.as_secs() > 24 * 3600).unwrap_or(true),
+                None => true,
+            };
+            if !stale { return Ok(()); }
+            let connection = Connection::open(&database_path).map_err(app_error)?;
+            perform_backup(&database_path, &recordings_dir, &connection)?;
+            prune_backups(&database_path, 7);
+            Ok(())
+        })();
+        if let Err(error) = result { eprintln!("自动备份失败：{error}"); }
+    });
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupInfo { name: String, path: String, size_mb: u64 }
+
+fn folder_size(path: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(path) else { return 0; };
+    entries.filter_map(|entry| entry.ok()).map(|entry| {
+        let path = entry.path();
+        if path.is_dir() { folder_size(&path) } else { entry.metadata().map(|m| m.len()).unwrap_or(0) }
+    }).sum()
+}
+
+#[tauri::command]
+fn list_backups(state: State<'_, AppState>) -> Result<Vec<BackupInfo>, String> {
+    let folders = list_backup_folders(&state.database_path);
+    Ok(folders.into_iter().map(|path| BackupInfo {
+        name: path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
+        size_mb: folder_size(&path) / 1024 / 1024,
+        path: path.to_string_lossy().to_string(),
+    }).collect())
+}
+
 #[tauri::command]
 fn backup_workspace(state: State<'_, AppState>) -> Result<String, String> {
-    let backup_root = state.database_path.parent().ok_or_else(|| "无法定位资料库目录".to_string())?.join("backups").join(format!("zhiji-{}", Local::now().format("%Y%m%d-%H%M%S")));
-    fs::create_dir_all(&backup_root).map_err(app_error)?;
-    let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
-    connection.execute_batch("PRAGMA wal_checkpoint(FULL);").map_err(app_error)?;
-    fs::copy(&state.database_path, backup_root.join("zhiji.sqlite3")).map_err(app_error)?;
-    drop(connection);
-    copy_folder(&state.recordings_dir, &backup_root.join("recordings"))?;
+    let backup_root = {
+        let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+        perform_backup(&state.database_path, &state.recordings_dir, &connection)?
+    };
+    prune_backups(&state.database_path, 7);
     Ok(backup_root.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn restore_backup(state: State<'_, AppState>, backup_path: String) -> Result<(), String> {
+    let backup_root = PathBuf::from(&backup_path);
+    let backup_db = backup_root.join("zhiji.sqlite3");
+    if !backup_db.is_file() { return Err("所选目录不是有效的知记备份（缺少 zhiji.sqlite3）".to_string()); }
+    // 先校验备份库结构完整，避免把坏库写进正式库
+    {
+        let check = Connection::open(&backup_db).map_err(|error| format!("备份文件无法打开：{error}"))?;
+        check.query_row("SELECT COUNT(*) FROM meetings", [], |row| row.get::<_, i64>(0))
+            .map_err(|_| "备份文件缺少会议数据表，可能不是知记的备份".to_string())?;
+    }
+    {
+        let mut connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+        let source = Connection::open(&backup_db).map_err(app_error)?;
+        let backup = rusqlite::backup::Backup::new(&source, &mut connection).map_err(app_error)?;
+        backup.run_to_completion(64, std::time::Duration::from_millis(20), None).map_err(app_error)?;
+    }
+    let backup_recordings = backup_root.join("recordings");
+    if backup_recordings.is_dir() { copy_folder(&backup_recordings, &state.recordings_dir)?; }
+    Ok(())
 }
 
 #[tauri::command]
@@ -918,14 +1162,23 @@ fn delete_meeting(state: State<'_, AppState>, meeting_id: String) -> Result<(), 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| { app.manage(open_state(app.handle())?); Ok(()) })
+        .setup(|app| {
+            let state = open_state(app.handle())?;
+            auto_backup_if_stale(state.database_path.clone(), state.recordings_dir.clone());
+            app.manage(state);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             load_workspace, get_ai_settings, get_local_asr_status, get_speaker_engine_status,
             download_local_asr_model, install_speaker_engine_command,
-            save_ai_settings, clear_ai_api_key, create_notebook, create_note, save_note,
-            create_meeting, save_meeting, upsert_task, save_recording, import_meeting_audio, transcribe_meeting,
-            transcribe_meeting_with_speakers, read_recording,
-            analyze_meeting, backup_workspace, delete_entity, delete_meeting
+            save_ai_settings, clear_ai_api_key,
+            get_asr_engine_settings, save_asr_engine_settings, clear_cloud_asr_key,
+            create_notebook, create_note, save_note,
+            create_meeting, save_meeting, upsert_task,
+            begin_recording, append_recording_chunk, finalize_recording, get_recording_path,
+            import_meeting_audio, transcribe_meeting,
+            transcribe_meeting_with_speakers,
+            analyze_meeting, backup_workspace, list_backups, restore_backup, delete_entity, delete_meeting
         ])
         .run(tauri::generate_context!())
         .expect("启动知记时发生错误");

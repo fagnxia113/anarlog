@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -60,6 +60,7 @@ type Task = {
   completed: boolean;
   dueDate: string | null;
   createdAt: string;
+  origin?: string;
 };
 type Workspace = {
   notebooks: Notebook[];
@@ -78,6 +79,13 @@ type LocalAsrStatus = {
   modelSizeMb: number;
 };
 type SpeakerEngineStatus = { installed: boolean; modelsReady: boolean };
+type AsrEngineSettings = {
+  provider: "local" | "cloud";
+  cloudBaseUrl: string;
+  cloudModel: string;
+  cloudKeySaved: boolean;
+};
+type BackupInfo = { name: string; path: string; sizeMb: number };
 type SpeakerSegment = {
   speaker: string;
   startMs: number;
@@ -95,6 +103,7 @@ type Processing =
   | "importing"
   | "deleting"
   | "autoTranscribing"
+  | "restoring"
   | null;
 
 const emptyWorkspace: Workspace = {
@@ -117,6 +126,29 @@ const defaultSpeakerStatus: SpeakerEngineStatus = {
   installed: false,
   modelsReady: false,
 };
+const defaultAsrEngine: AsrEngineSettings = {
+  provider: "local",
+  cloudBaseUrl: "https://api.siliconflow.cn/v1",
+  cloudModel: "FunAudioLLM/SenseVoiceSmall",
+  cloudKeySaved: false,
+};
+const CLOUD_ASR_PRESETS = [
+  {
+    label: "硅基流动 · SenseVoiceSmall（有免费额度）",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    model: "FunAudioLLM/SenseVoiceSmall",
+  },
+  {
+    label: "OpenAI · whisper-1",
+    baseUrl: "https://api.openai.com/v1",
+    model: "whisper-1",
+  },
+  {
+    label: "Groq · whisper-large-v3",
+    baseUrl: "https://api.groq.com/openai/v1",
+    model: "whisper-large-v3",
+  },
+];
 
 function dateTime(value: string) {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -153,6 +185,10 @@ export function App() {
   const [asrStatus, setAsrStatus] = useState<LocalAsrStatus>(defaultAsrStatus);
   const [speakerStatus, setSpeakerStatus] =
     useState<SpeakerEngineStatus>(defaultSpeakerStatus);
+  const [asrEngine, setAsrEngine] = useState<AsrEngineSettings>(defaultAsrEngine);
+  const [asrKeyInput, setAsrKeyInput] = useState("");
+  const [backups, setBackups] = useState<BackupInfo[]>([]);
+  const [autoSaveHint, setAutoSaveHint] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [view, setView] = useState<View>("home");
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
@@ -164,10 +200,15 @@ export function App() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [processing, setProcessing] = useState<Processing>(null);
   const recorder = useRef<MediaRecorder | null>(null);
-  const chunks = useRef<Blob[]>([]);
   const recordingSecondsRef = useRef(0);
   const asrStatusRef = useRef(asrStatus);
   const speakerStatusRef = useRef(speakerStatus);
+  const asrEngineRef = useRef(asrEngine);
+  const savedSnapshot = useRef<{ kind: "note" | "meeting" | null; id: string; json: string }>({
+    kind: null,
+    id: "",
+    json: "",
+  });
 
   useEffect(() => {
     asrStatusRef.current = asrStatus;
@@ -175,6 +216,9 @@ export function App() {
   useEffect(() => {
     speakerStatusRef.current = speakerStatus;
   }, [speakerStatus]);
+  useEffect(() => {
+    asrEngineRef.current = asrEngine;
+  }, [asrEngine]);
 
   const reload = async () => {
     const next = await invoke<Workspace>("load_workspace");
@@ -194,12 +238,16 @@ export function App() {
       invoke<AiSettings>("get_ai_settings"),
       invoke<LocalAsrStatus>("get_local_asr_status"),
       invoke<SpeakerEngineStatus>("get_speaker_engine_status"),
+      invoke<AsrEngineSettings>("get_asr_engine_settings"),
+      invoke<BackupInfo[]>("list_backups"),
     ])
-      .then(([, settings, asr, speaker]) => {
+      .then(([, settings, asr, speaker, engine, backupList]) => {
         if (!active) return;
         setAiSettings(settings);
         setAsrStatus(asr);
         setSpeakerStatus(speaker);
+        setAsrEngine(engine);
+        setBackups(backupList);
       })
       .catch(
         (error: unknown) =>
@@ -219,6 +267,40 @@ export function App() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [recording]);
+
+  // 自动保存：选中对象内容变化后 1.5 秒无操作即静默保存（不打断输入，不刷新列表）
+  useEffect(() => {
+    const target = selectedNote
+      ? ({ kind: "note", id: selectedNote.id, json: JSON.stringify(selectedNote) } as const)
+      : selectedMeeting
+        ? ({ kind: "meeting", id: selectedMeeting.id, json: JSON.stringify(selectedMeeting) } as const)
+        : null;
+    if (!target) return;
+    const snap = savedSnapshot.current;
+    if (snap.kind !== target.kind || snap.id !== target.id) {
+      savedSnapshot.current = target;
+      setAutoSaveHint("");
+      return;
+    }
+    if (snap.json === target.json) return;
+    setAutoSaveHint("有未保存更改…");
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          if (target.kind === "note" && selectedNote) {
+            await invoke("save_note", { note: selectedNote });
+          } else if (target.kind === "meeting" && selectedMeeting) {
+            await invoke("save_meeting", { meeting: selectedMeeting });
+          }
+          savedSnapshot.current = target;
+          setAutoSaveHint("已自动保存");
+        } catch (error) {
+          setAutoSaveHint(`自动保存失败：${String(error)}`);
+        }
+      })();
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [selectedNote, selectedMeeting]);
 
   const filteredMeetings = useMemo(
     () =>
@@ -260,6 +342,12 @@ export function App() {
   const saveMeeting = async () => {
     if (!selectedMeeting) return;
     await invoke("save_meeting", { meeting: selectedMeeting });
+    savedSnapshot.current = {
+      kind: "meeting",
+      id: selectedMeeting.id,
+      json: JSON.stringify(selectedMeeting),
+    };
+    setAutoSaveHint("已保存到本地");
     await reload();
     notify("会议内容已保存到本地");
   };
@@ -339,6 +427,12 @@ export function App() {
   const saveNote = async () => {
     if (!selectedNote) return;
     await invoke("save_note", { note: selectedNote });
+    savedSnapshot.current = {
+      kind: "note",
+      id: selectedNote.id,
+      json: JSON.stringify(selectedNote),
+    };
+    setAutoSaveHint("已保存到本地");
     await reload();
     notify("笔记已保存到本地");
   };
@@ -369,35 +463,66 @@ export function App() {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
       const meetingId = selectedMeeting.id;
-      chunks.current = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 先在后端建好空文件，录音过程中每 30 秒追加一段，崩溃也最多只丢 30 秒
+      await invoke("begin_recording", { meetingId });
+      const mediaRecorder = new MediaRecorder(stream);
+      let chunkQueue: Promise<void> = Promise.resolve();
+      let chunkFailed = "";
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunks.current.push(event.data);
-      };
-      mediaRecorder.onstop = () => {
-        void (async () => {
+        if (event.data.size === 0) return;
+        const blob = event.data;
+        chunkQueue = chunkQueue.then(async () => {
+          if (chunkFailed) return;
           try {
-            const blob = new Blob(chunks.current, {
-              type: mediaRecorder.mimeType || "audio/webm",
-            });
             const dataUrl = await new Promise<string>((resolve, reject) => {
               const reader = new FileReader();
               reader.onloadend = () => resolve(String(reader.result));
               reader.onerror = () => reject(reader.error);
               reader.readAsDataURL(blob);
             });
-            await invoke("save_recording", {
+            await invoke("append_recording_chunk", { meetingId, dataUrl });
+          } catch (error) {
+            chunkFailed = String(error);
+          }
+        });
+      };
+      mediaRecorder.onstop = () => {
+        void (async () => {
+          try {
+            await chunkQueue;
+            if (chunkFailed) {
+              notify(`录音写入失败：${chunkFailed}。已保留写入成功的部分。`);
+            }
+            const meeting = await invoke<Meeting>("finalize_recording", {
               meetingId,
-              dataUrl,
               durationSeconds: recordingSecondsRef.current,
             });
-            const latest = await reload();
-            setSelectedMeeting(
-              latest.meetings.find((meeting) => meeting.id === meetingId) ??
-                null,
-            );
+            setSelectedMeeting(meeting);
+            await reload();
+
+            const engine = asrEngineRef.current;
+            if (engine.provider === "cloud") {
+              if (!engine.cloudKeySaved) {
+                notify("录音已保存。请先在设置中配置云端转写密钥。");
+                return;
+              }
+              setProcessing("autoTranscribing");
+              try {
+                const transcribed = await invoke<Meeting>("transcribe_meeting", {
+                  meetingId,
+                });
+                setSelectedMeeting(transcribed);
+                await reload();
+                notify("录音已保存，并自动完成云端转写（录音已按你的配置上传处理）。");
+              } catch (error) {
+                notify(`云端转写失败：${String(error)}。可手动点击转写按钮重试。`);
+              } finally {
+                setProcessing(null);
+              }
+              return;
+            }
 
             if (!asrStatusRef.current.installed) {
               notify("录音已保存。请在设置中下载本地语音模型后再转写。");
@@ -445,7 +570,7 @@ export function App() {
       recordingSecondsRef.current = 0;
       setRecordingSeconds(0);
       setRecording(true);
-      mediaRecorder.start(1000);
+      mediaRecorder.start(30000);
     } catch (error) {
       notify(`无法启用麦克风：${String(error)}`);
     }
@@ -465,7 +590,11 @@ export function App() {
       });
       setSelectedMeeting(meeting);
       await reload();
-      notify("本地语音转写完成，已写入原始记录");
+      notify(
+        asrEngine.provider === "cloud"
+          ? "云端转写完成，已写入原始记录"
+          : "本地语音转写完成，已写入原始记录",
+      );
     } catch (error) {
       notify(`转写失败：${String(error)}`);
     } finally {
@@ -520,6 +649,11 @@ export function App() {
 
   const transcribeWithSpeakers = async () => {
     if (!selectedMeeting) return;
+    if (asrEngine.provider === "cloud") {
+      // 云端引擎暂不含说话人分离，退化为纯云端转写
+      await transcribeMeeting();
+      return;
+    }
     try {
       setProcessing("speakerTranscribing");
       const meeting = await invoke<Meeting>(
@@ -562,6 +696,66 @@ export function App() {
       notify("已从 Windows 凭据库删除 API 密钥");
     } catch (error) {
       notify(`无法删除密钥：${String(error)}`);
+    }
+  };
+
+  const saveAsrEngine = async (next: AsrEngineSettings, withKey: boolean) => {
+    try {
+      const saved = await invoke<AsrEngineSettings>("save_asr_engine_settings", {
+        settings: {
+          provider: next.provider,
+          cloudBaseUrl: next.cloudBaseUrl,
+          cloudModel: next.cloudModel,
+          apiKey: withKey ? asrKeyInput.trim() || null : null,
+        },
+      });
+      setAsrEngine(saved);
+      setAsrKeyInput("");
+      notify(
+        saved.provider === "cloud"
+          ? "已切换为云端转写，录音将按你的配置上传处理"
+          : "已切换为本地转写，录音不会离开本机",
+      );
+    } catch (error) {
+      notify(`无法保存转写引擎设置：${String(error)}`);
+    }
+  };
+
+  const clearCloudAsrKey = async () => {
+    try {
+      await invoke("clear_cloud_asr_key");
+      setAsrEngine((settings) => ({ ...settings, cloudKeySaved: false }));
+      setAsrKeyInput("");
+      notify("已从 Windows 凭据库删除云端转写密钥");
+    } catch (error) {
+      notify(`无法删除密钥：${String(error)}`);
+    }
+  };
+
+  const refreshBackups = async () => {
+    setBackups(await invoke<BackupInfo[]>("list_backups"));
+  };
+
+  const restoreBackup = async (backup: BackupInfo) => {
+    if (
+      !window.confirm(
+        `确定用备份「${backup.name}」覆盖当前全部数据吗？\n\n覆盖前会先自动备份一份当前数据，可再次回滚。`,
+      )
+    )
+      return;
+    try {
+      setProcessing("restoring");
+      await invoke<string>("backup_workspace");
+      await invoke("restore_backup", { backupPath: backup.path });
+      await reload();
+      setSelectedMeeting(null);
+      setSelectedNote(null);
+      await refreshBackups();
+      notify("已从备份恢复全部数据（恢复前的数据也已另存为最新备份）");
+    } catch (error) {
+      notify(`恢复失败：${String(error)}`);
+    } finally {
+      setProcessing(null);
     }
   };
 
@@ -697,9 +891,11 @@ export function App() {
             onRecord={() => void startRecording()}
             onStop={stopRecording}
             asrStatus={asrStatus}
+            asrEngine={asrEngine}
             speakerStatus={speakerStatus}
             aiConfigured={aiSettings.isConfigured}
             processing={processing}
+            autoSaveHint={autoSaveHint}
             onTranscribe={() => void transcribeMeeting()}
             onTranscribeWithSpeakers={() => void transcribeWithSpeakers()}
             onAnalyze={() => void analyzeMeeting()}
@@ -716,6 +912,7 @@ export function App() {
             onCreate={() => void createNote()}
             onChange={setSelectedNote}
             onSave={() => void saveNote()}
+            autoSaveHint={autoSaveHint}
           />
         )}
         {view === "tasks" && (
@@ -730,6 +927,9 @@ export function App() {
             workspace={workspace}
             aiSettings={aiSettings}
             asrStatus={asrStatus}
+            asrEngine={asrEngine}
+            asrKeyInput={asrKeyInput}
+            backups={backups}
             apiKey={apiKey}
             processing={processing}
             onAiChange={setAiSettings}
@@ -737,6 +937,11 @@ export function App() {
             onSaveAi={() => void saveAiSettings()}
             onClearAiKey={() => void clearAiKey()}
             onDownloadAsr={() => void downloadLocalAsr()}
+            onAsrEngineChange={setAsrEngine}
+            onAsrKeyInputChange={setAsrKeyInput}
+            onSaveAsrEngine={(next, withKey) => void saveAsrEngine(next, withKey)}
+            onClearCloudAsrKey={() => void clearCloudAsrKey()}
+            onRestore={(backup) => void restoreBackup(backup)}
             onCreateNotebook={async () => {
               const name = window.prompt("笔记本名称");
               if (!name?.trim()) return;
@@ -749,6 +954,7 @@ export function App() {
             }}
             onBackup={async () => {
               const path = await invoke<string>("backup_workspace");
+              await refreshBackups();
               notify(`备份已创建：${path}`);
             }}
           />
@@ -850,7 +1056,7 @@ function Home({
           <span className="eyebrow">录音即转写 · 智能纪要 · 行动</span>
           <h2>点一下录音，说完就有纪要。</h2>
           <p>
-            录音停止后自动本地转写并区分说话人，全程不上传音频。需要智能纪要时，再由你主动选择已配置的服务处理文字稿。
+            录音停止后自动转写并生成纪要。本地引擎录音不出本机；选择云端转写时，录音只发送给你在设置中配置的服务商。
           </p>
         </div>
         <div className="welcome-actions">
@@ -981,9 +1187,11 @@ function Meetings({
   onRecord,
   onStop,
   asrStatus,
+  asrEngine,
   speakerStatus,
   aiConfigured,
   processing,
+  autoSaveHint,
   onTranscribe,
   onTranscribeWithSpeakers,
   onAnalyze,
@@ -1006,9 +1214,11 @@ function Meetings({
   onRecord: () => void;
   onStop: () => void;
   asrStatus: LocalAsrStatus;
+  asrEngine: AsrEngineSettings;
   speakerStatus: SpeakerEngineStatus;
   aiConfigured: boolean;
   processing: Processing;
+  autoSaveHint: string;
   onTranscribe: () => void;
   onTranscribeWithSpeakers: () => void;
   onAnalyze: () => void;
@@ -1095,6 +1305,9 @@ function Meetings({
                 </div>
               </div>
               <div className="editor-buttons">
+                {autoSaveHint && (
+                  <small className="autosave-hint">{autoSaveHint}</small>
+                )}
                 <button
                   className="icon-danger-button"
                   disabled={recording || processing !== null}
@@ -1180,6 +1393,7 @@ function Meetings({
               <AiWorkflow
                 meeting={meeting}
                 asrStatus={asrStatus}
+                asrEngine={asrEngine}
                 speakerStatus={speakerStatus}
                 aiConfigured={aiConfigured}
                 processing={processing}
@@ -1320,6 +1534,7 @@ function Meetings({
 function AiWorkflow({
   meeting,
   asrStatus,
+  asrEngine,
   speakerStatus,
   aiConfigured,
   processing,
@@ -1331,6 +1546,7 @@ function AiWorkflow({
 }: {
   meeting: Meeting;
   asrStatus: LocalAsrStatus;
+  asrEngine: AsrEngineSettings;
   speakerStatus: SpeakerEngineStatus;
   aiConfigured: boolean;
   processing: Processing;
@@ -1340,11 +1556,13 @@ function AiWorkflow({
   onInstallSpeaker: () => void;
   onOpenSettings: () => void;
 }) {
-  const speakerReady = speakerStatus.installed;
+  const cloud = asrEngine.provider === "cloud";
+  const speakerReady = !cloud && speakerStatus.installed;
+  const engineReady = cloud ? asrEngine.cloudKeySaved : asrStatus.installed;
   const autoTranscribing = processing === "autoTranscribing";
   const transcribing =
     processing === "transcribing" || processing === "speakerTranscribing";
-  // 统一工作流：装了说话人引擎就一起做转写+分离，没装就只做转写
+  // 统一工作流：本地且装了说话人引擎就一起做转写+分离，其余情况只做转写
   const handleTranscribe = speakerReady ? onTranscribeWithSpeakers : onTranscribe;
   return (
     <div className="ai-workflow">
@@ -1354,18 +1572,26 @@ function AiWorkflow({
           <strong>录音即转写 · 智能纪要</strong>
           <small>
             {autoTranscribing
-              ? "录音已保存，正在本地转写并区分说话人，请稍候…"
+              ? cloud
+                ? "录音已保存，正在云端转写，请稍候…"
+                : "录音已保存，正在本地转写并区分说话人，请稍候…"
               : processing === "installingSpeaker"
                 ? "首次安装约需 2–5 分钟；正在后台下载组件，请勿关闭知记。"
                 : transcribing
-                  ? speakerReady
-                    ? "正在本地转写并区分说话人…"
-                    : "正在本地转写…"
-                  : asrStatus.installed
-                    ? speakerReady
-                      ? "点击「开始转写」会一次性完成转写与说话人分离。"
-                      : "点击「开始转写」即可；安装说话人引擎后会同时区分发言人。"
-                    : "请先在设置中下载本地中文语音模型，录音后即可自动转写。"}
+                  ? cloud
+                    ? "正在云端转写，录音按你的配置上传处理…"
+                    : speakerReady
+                      ? "正在本地转写并区分说话人…"
+                      : "正在本地转写…"
+                  : cloud
+                    ? engineReady
+                      ? "云端转写已就绪：速度快、不占本机算力；整场录音会发送给你配置的服务商。"
+                      : "请在设置中配置云端转写密钥，录音后即可自动转写。"
+                    : asrStatus.installed
+                      ? speakerReady
+                        ? "点击「开始转写」会一次性完成转写与说话人分离。"
+                        : "点击「开始转写」即可；安装说话人引擎后会同时区分发言人。"
+                      : "请先在设置中下载本地中文语音模型，录音后即可自动转写。"}
           </small>
         </span>
       </div>
@@ -1375,9 +1601,9 @@ function AiWorkflow({
             <LoaderCircle className="spin" size={15} />
             正在自动转写…
           </button>
-        ) : !asrStatus.installed ? (
+        ) : !engineReady ? (
           <button className="secondary-button" onClick={onOpenSettings}>
-            下载本地模型
+            {cloud ? "配置云端转写" : "下载本地模型"}
           </button>
         ) : (
           <button
@@ -1385,9 +1611,11 @@ function AiWorkflow({
             disabled={!meeting.audioPath || processing !== null}
             onClick={handleTranscribe}
             title={
-              speakerReady
-                ? "一次性完成转写与说话人分离"
-                : "本地转写；安装说话人引擎后会同时区分发言人"
+              cloud
+                ? "上传录音到云端服务完成转写"
+                : speakerReady
+                  ? "一次性完成转写与说话人分离"
+                  : "本地转写；安装说话人引擎后会同时区分发言人"
             }
           >
             {transcribing ? (
@@ -1397,12 +1625,14 @@ function AiWorkflow({
             )}
             {transcribing
               ? "正在转写…"
-              : speakerReady
-                ? "开始转写（含说话人分离）"
-                : "开始转写"}
+              : cloud
+                ? "开始云端转写"
+                : speakerReady
+                  ? "开始转写（含说话人分离）"
+                  : "开始转写"}
           </button>
         )}
-        {!speakerReady && asrStatus.installed && !autoTranscribing ? (
+        {!cloud && !speakerReady && asrStatus.installed && !autoTranscribing ? (
           <button
             className="secondary-button"
             disabled={processing !== null}
@@ -1488,8 +1718,8 @@ function AudioPlayer({
     setCurrentPos(0);
     setIsPlaying(false);
     setWaitingForMetadata(null);
-    void invoke<string>("read_recording", { meetingId })
-      .then((url) => setAudioUrl(url))
+    void invoke<string>("get_recording_path", { meetingId })
+      .then((path) => setAudioUrl(convertFileSrc(path)))
       .catch(() => setAudioUrl(null))
       .finally(() => setLoading(false));
   }, [meetingId, audioPath]);
@@ -1667,6 +1897,7 @@ function Notes({
   onCreate,
   onChange,
   onSave,
+  autoSaveHint,
 }: {
   notes: Note[];
   notebooks: Notebook[];
@@ -1675,6 +1906,7 @@ function Notes({
   onCreate: () => void;
   onChange: (note: Note) => void;
   onSave: () => void;
+  autoSaveHint: string;
 }) {
   return (
     <div className="split-layout">
@@ -1717,10 +1949,15 @@ function Notes({
                 />
                 <small>上次编辑于 {dateTime(note.updatedAt)}</small>
               </div>
-              <button className="primary-button" onClick={onSave}>
-                <Check size={15} />
-                保存
-              </button>
+              <div className="editor-buttons">
+                {autoSaveHint && (
+                  <small className="autosave-hint">{autoSaveHint}</small>
+                )}
+                <button className="primary-button" onClick={onSave}>
+                  <Check size={15} />
+                  保存
+                </button>
+              </div>
             </div>
             <div className="note-meta">
               <FolderOpen size={15} />
@@ -1871,6 +2108,9 @@ function SettingsView({
   workspace,
   aiSettings,
   asrStatus,
+  asrEngine,
+  asrKeyInput,
+  backups,
   apiKey,
   processing,
   onAiChange,
@@ -1878,12 +2118,20 @@ function SettingsView({
   onSaveAi,
   onClearAiKey,
   onDownloadAsr,
+  onAsrEngineChange,
+  onAsrKeyInputChange,
+  onSaveAsrEngine,
+  onClearCloudAsrKey,
+  onRestore,
   onCreateNotebook,
   onBackup,
 }: {
   workspace: Workspace;
   aiSettings: AiSettings;
   asrStatus: LocalAsrStatus;
+  asrEngine: AsrEngineSettings;
+  asrKeyInput: string;
+  backups: BackupInfo[];
   apiKey: string;
   processing: Processing;
   onAiChange: (settings: AiSettings) => void;
@@ -1891,9 +2139,21 @@ function SettingsView({
   onSaveAi: () => void;
   onClearAiKey: () => void;
   onDownloadAsr: () => void;
+  onAsrEngineChange: (settings: AsrEngineSettings) => void;
+  onAsrKeyInputChange: (key: string) => void;
+  onSaveAsrEngine: (next: AsrEngineSettings, withKey: boolean) => void;
+  onClearCloudAsrKey: () => void;
+  onRestore: (backup: BackupInfo) => void;
   onCreateNotebook: () => void;
   onBackup: () => void;
 }) {
+  const cloud = asrEngine.provider === "cloud";
+  const presetValue =
+    CLOUD_ASR_PRESETS.find(
+      (preset) =>
+        preset.baseUrl === asrEngine.cloudBaseUrl &&
+        preset.model === asrEngine.cloudModel,
+    )?.label ?? "custom";
   return (
     <div className="settings-page">
       <section className="settings-hero">
@@ -1901,51 +2161,189 @@ function SettingsView({
           <Sparkles size={19} />
         </span>
         <div>
-          <h2>语音识别在本机，智能纪要由你决定</h2>
+          <h2>引擎由你选，数据在你手里</h2>
           <p>
-            录音、自动转写与说话人区分始终在这台电脑完成。只有点击"生成智能纪要"时，才会把转写文字发送给你配置的服务；绝不会上传录音。
+            转写可以在本机离线完成，也可以走你配置的云端服务（录音只发给该服务商）；智能纪要只发送转写文字。录音与资料库始终保存在这台电脑，可备份、可恢复、可带走。
           </p>
         </div>
       </section>
-      <h3 className="settings-section-title">智能引擎</h3>
+      <h3 className="settings-section-title">转写引擎</h3>
       <section className="settings-card ai-settings">
         <div>
-          <h3>本地中文语音模型</h3>
+          <h3>引擎选择</h3>
           <p>
-            SenseVoiceSmall Q8 +
-            FSMN-VAD。模型仅首次下载，之后离线运行；适合普通 Windows
-            电脑的中文会议转写。
+            本地引擎离线免费、录音不出本机，但首次需下载模型且转写较慢；云端引擎速度快、不占本机算力，整场录音会发送给你配置的服务商。
           </p>
         </div>
-        <span className={`ai-status ${asrStatus.installed ? "ready" : ""}`}>
-          {asrStatus.installed
-            ? `已安装 ${asrStatus.modelSizeMb} MB`
-            : "尚未下载"}
-        </span>
-        <div className="settings-actions">
-          <button
-            className="primary-button"
-            disabled={processing !== null || asrStatus.installed}
-            onClick={onDownloadAsr}
-          >
-            {processing === "downloading" ? (
-              <LoaderCircle className="spin" size={16} />
-            ) : (
-              <Mic size={16} />
-            )}
-            {processing === "downloading"
-              ? "正在下载模型"
-              : asrStatus.installed
-                ? "模型已就绪"
-                : "下载本地模型"}
-          </button>
-          {!asrStatus.runtimeAvailable && (
-            <small className="runtime-warning">
-              语音运行时将在 Windows 安装包中提供。
-            </small>
-          )}
+        <div className="engine-switch">
+          <label className={cloud ? "" : "active"}>
+            <input
+              type="radio"
+              name="asr-provider"
+              checked={!cloud}
+              onChange={() =>
+                onSaveAsrEngine({ ...asrEngine, provider: "local" }, false)
+              }
+            />
+            本地转写
+          </label>
+          <label className={cloud ? "active" : ""}>
+            <input
+              type="radio"
+              name="asr-provider"
+              checked={cloud}
+              onChange={() =>
+                onAsrEngineChange({ ...asrEngine, provider: "cloud" })
+              }
+            />
+            云端转写
+          </label>
         </div>
+        {cloud && !asrEngine.cloudKeySaved && (
+          <small className="runtime-warning">
+            填写下方密钥并点击保存后，云端转写才会生效；未生效前仍使用本地引擎。
+          </small>
+        )}
       </section>
+      {!cloud && (
+        <section className="settings-card ai-settings">
+          <div>
+            <h3>本地中文语音模型</h3>
+            <p>
+              SenseVoiceSmall Q8 +
+              FSMN-VAD。模型仅首次下载，之后离线运行；适合普通 Windows
+              电脑的中文会议转写。
+            </p>
+          </div>
+          <span className={`ai-status ${asrStatus.installed ? "ready" : ""}`}>
+            {asrStatus.installed
+              ? `已安装 ${asrStatus.modelSizeMb} MB`
+              : "尚未下载"}
+          </span>
+          <div className="settings-actions">
+            <button
+              className="primary-button"
+              disabled={processing !== null || asrStatus.installed}
+              onClick={onDownloadAsr}
+            >
+              {processing === "downloading" ? (
+                <LoaderCircle className="spin" size={16} />
+              ) : (
+                <Mic size={16} />
+              )}
+              {processing === "downloading"
+                ? "正在下载模型"
+                : asrStatus.installed
+                  ? "模型已就绪"
+                  : "下载本地模型"}
+            </button>
+            {!asrStatus.runtimeAvailable && (
+              <small className="runtime-warning">
+                语音运行时将在 Windows 安装包中提供。
+              </small>
+            )}
+          </div>
+        </section>
+      )}
+      {cloud && (
+        <section className="settings-card ai-settings">
+          <div>
+            <h3>云端转写服务</h3>
+            <p>
+              兼容 OpenAI 的 /audio/transcriptions
+              接口。点转写后整场录音会发送到该服务商处理；API 密钥存入
+              Windows 凭据库，不写入 SQLite。
+            </p>
+          </div>
+          <span
+            className={`ai-status ${asrEngine.cloudKeySaved ? "ready" : ""}`}
+          >
+            {asrEngine.cloudKeySaved ? "已配置" : "未配置"}
+          </span>
+          <div className="ai-grid">
+            <label>
+              服务商预设
+              <select
+                value={presetValue}
+                onChange={(event) => {
+                  const preset = CLOUD_ASR_PRESETS.find(
+                    (item) => item.label === event.target.value,
+                  );
+                  if (preset) {
+                    onAsrEngineChange({
+                      ...asrEngine,
+                      cloudBaseUrl: preset.baseUrl,
+                      cloudModel: preset.model,
+                    });
+                  }
+                }}
+              >
+                {CLOUD_ASR_PRESETS.map((preset) => (
+                  <option value={preset.label} key={preset.label}>
+                    {preset.label}
+                  </option>
+                ))}
+                <option value="custom">自定义</option>
+              </select>
+            </label>
+            <label>
+              服务地址
+              <input
+                value={asrEngine.cloudBaseUrl}
+                onChange={(event) =>
+                  onAsrEngineChange({
+                    ...asrEngine,
+                    cloudBaseUrl: event.target.value,
+                  })
+                }
+                placeholder="https://api.siliconflow.cn/v1"
+              />
+            </label>
+            <label>
+              转写模型
+              <input
+                value={asrEngine.cloudModel}
+                onChange={(event) =>
+                  onAsrEngineChange({
+                    ...asrEngine,
+                    cloudModel: event.target.value,
+                  })
+                }
+                placeholder="FunAudioLLM/SenseVoiceSmall"
+              />
+            </label>
+            <label>
+              API 密钥
+              <input
+                type="password"
+                value={asrKeyInput}
+                onChange={(event) => onAsrKeyInputChange(event.target.value)}
+                placeholder={
+                  asrEngine.cloudKeySaved
+                    ? "已保存；留空即可保留原密钥"
+                    : "粘贴 API 密钥"
+                }
+              />
+            </label>
+          </div>
+          <div className="settings-actions">
+            <button
+              className="primary-button"
+              disabled={processing !== null}
+              onClick={() => onSaveAsrEngine({ ...asrEngine, provider: "cloud" }, true)}
+            >
+              <Check size={16} />
+              保存云端转写设置
+            </button>
+            {asrEngine.cloudKeySaved && (
+              <button className="secondary-button" onClick={onClearCloudAsrKey}>
+                删除密钥
+              </button>
+            )}
+          </div>
+        </section>
+      )}
+      <h3 className="settings-section-title">智能纪要（云端）</h3>
       <section className="settings-card ai-settings">
         <div>
           <h3>智能纪要服务（可选）</h3>
@@ -2028,14 +2426,45 @@ function SettingsView({
       </section>
       <section className="settings-card">
         <div>
-          <h3>立即备份</h3>
-          <p>创建一个包含 SQLite 资料库与全部会议录音的本机副本。</p>
+          <h3>备份与恢复</h3>
+          <p>
+            备份包含 SQLite 资料库与全部会议录音。启动时若超过 24
+            小时未备份会自动备份，保留最近 7 份。
+          </p>
         </div>
-        <button className="secondary-button" onClick={onBackup}>
+        <button
+          className="secondary-button"
+          disabled={processing !== null}
+          onClick={onBackup}
+        >
           <Archive size={16} />
-          创建备份
+          立即备份
         </button>
       </section>
+      {backups.length > 0 && (
+        <section className="settings-card backups-card">
+          <div>
+            <h3>已有备份</h3>
+            <p>恢复会用备份覆盖当前资料库；覆盖前会自动再备份一份当前数据。</p>
+          </div>
+          {backups.map((backup) => (
+            <div className="backup-row" key={backup.path}>
+              <span>{backup.name.replace("zhiji-", "")}</span>
+              <small>{backup.sizeMb} MB</small>
+              <button
+                className="secondary-button compact-button"
+                disabled={processing !== null}
+                onClick={() => onRestore(backup)}
+              >
+                {processing === "restoring" ? (
+                  <LoaderCircle className="spin" size={14} />
+                ) : null}
+                恢复
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
     </div>
   );
 }
