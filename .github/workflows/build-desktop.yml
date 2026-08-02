@@ -37,7 +37,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
-        run: pnpm --filter @zhiji/desktop install
+        run: pnpm --filter @zhiji/desktop install --no-frozen-lockfile
 
       - name: Bundle local Chinese ASR runtime
         shell: pwsh
