@@ -20,7 +20,7 @@ tauri-build = "2.5"
 [dependencies]
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
-keyring = "4.1.4"
+keyring = "2"
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "multipart", "rustls", "rustls-native-certs"] }
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 serde = { version = "1", features = ["derive"] }
