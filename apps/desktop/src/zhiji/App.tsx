@@ -702,7 +702,7 @@ export function App() {
         </div>
         <button className="new-button" onClick={() => void createMeeting()}>
           <Plus size={17} />
-          新建会议
+          <span>新建会议</span>
         </button>
         <nav className="nav-list">
           <NavItem
@@ -729,7 +729,7 @@ export function App() {
         </nav>
         <button className="settings-link" onClick={() => setView("settings")}>
           <Settings size={18} />
-          设置与智能功能
+          <span>设置与智能功能</span>
         </button>
       </aside>
       <main className="main-content">
@@ -1031,7 +1031,7 @@ function Meetings({
   meetings: Meeting[];
   meeting: Meeting | null;
   tasks: Task[];
-  onSelect: (meeting: Meeting) => void;
+  onSelect: (meeting: Meeting | null) => void;
   onCreate: () => void;
   onChange: (meeting: Meeting) => void;
   onSave: () => void;
@@ -1060,7 +1060,7 @@ function Meetings({
   const [seekRequest, setSeekRequest] = useState<{ time: number; nonce: number } | null>(null);
   const [currentMs, setCurrentMs] = useState(-1);
   // 会议详情页 Tab 状态（保留在父级，避免切 Tab 丢状态；AudioPlayer 在 sticky 顶部不进 Tab）
-  const [activeTab, setActiveTab] = useState<"minutes" | "transcript" | "speakers" | "tasks">(
+  const [activeTab, setActiveTab] = useState<"notes" | "minutes" | "transcript" | "speakers" | "tasks">(
     "minutes",
   );
   // 会前背景条：默认收起；有内容时收起并显示首行预览，空时展开引导填写
@@ -1089,7 +1089,7 @@ function Meetings({
   );
 
   return (
-    <div className="split-layout">
+    <div className={`split-layout ${meeting ? "has-meeting" : ""}`}>
       <section className="list-pane">
         <div className="pane-heading">
           <div>
@@ -1123,6 +1123,7 @@ function Meetings({
       <section className="editor-pane">
         {meeting ? (
           <>
+            <button className="back-to-list" onClick={() => onSelect(null)}>← 会议</button>
             <div className="editor-top">
               <div>
                 <div className="title-row">
@@ -1305,6 +1306,12 @@ function Meetings({
               <section className="meeting-tabs">
                 <div className="tab-bar">
                   <button
+                    className={`tab-item tab-notes ${activeTab === "notes" ? "active" : ""}`}
+                    onClick={() => setActiveTab("notes")}
+                  >
+                    我的笔记
+                  </button>
+                  <button
                     className={`tab-item ${activeTab === "minutes" ? "active" : ""}`}
                     onClick={() => setActiveTab("minutes")}
                   >
@@ -1333,6 +1340,22 @@ function Meetings({
                   </button>
                 </div>
                 <div className="tab-panel" key={activeTab}>
+                  {activeTab === "notes" && (
+                    <div className="meeting-editor">
+                      <div className="editor-field">
+                        <h3>我的笔记</h3>
+                        <small>开会时随手记，一直显示在这里，不会被智能纪要覆盖</small>
+                        <textarea
+                          value={meeting.notes}
+                          onChange={(event) =>
+                            onChange({ ...meeting, notes: event.target.value })
+                          }
+                          placeholder="会议进行中，把你的观察、待确认点、临时想法记在这里…"
+                          style={{ minHeight: 320 }}
+                        />
+                      </div>
+                    </div>
+                  )}
                   {activeTab === "minutes" && (
                     <div className="tab-panel-doc">
                       {meeting.minutes.trim() || aiConfigured ? (
