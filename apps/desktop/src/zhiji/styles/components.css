@@ -471,7 +471,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   padding: var(--space-4);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--accent-subtle), var(--bg-surface));
+  background: var(--bg-subtle);
   box-shadow: var(--shadow-xs);
 }
 .ai-flow-copy { display: flex; align-items: flex-start; gap: var(--space-3); color: var(--accent-text); }

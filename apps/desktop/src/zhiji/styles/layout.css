@@ -3,7 +3,7 @@
 .app-shell {
   height: 100vh;
   display: grid;
-  grid-template: 36px 1fr / var(--sidebar-w) 1fr;
+  grid-template: 36px 1fr / var(--rail-w) 1fr;
   background: var(--bg-app);
 }
 
@@ -37,11 +37,13 @@
 .window-controls button:hover { background: var(--bg-inset); }
 .window-controls .close-window:hover { color: white; background: var(--danger); }
 
-/* —— 侧边栏（Mica 半透明 + 毛玻璃）—— */
-.sidebar {
+/* —— 图标栏（微信风：窄栏 + 圆形图标，无头像，+ 在顶，设置在底）—— */
+.icon-rail {
   display: flex;
   flex-direction: column;
-  padding: var(--space-4) var(--space-3) var(--space-4);
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
   background: var(--mica-strong);
   backdrop-filter: blur(20px) saturate(125%);
   -webkit-backdrop-filter: blur(20px) saturate(125%);
@@ -49,118 +51,50 @@
   min-width: 0;
 }
 
-.brand {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  padding: 0 var(--space-2) var(--space-4);
-  color: var(--text-strong);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -.01em;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.brand-mark {
-  width: 26px;
-  height: 26px;
-  flex: none;
+/* 顶部新建按钮（圆形实色 accent） */
+.rail-new {
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
-  border-radius: var(--radius-md);
-  color: white;
-  background: var(--accent);
-  font-size: 14px;
-  font-weight: 700;
-}
-
-/* 新建会议按钮（侧边栏视觉锚点） */
-.new-button {
-  width: 100%;
-  margin-bottom: var(--space-4);
   border: 0;
-  display: inline-flex;
-  justify-content: center;
-  gap: var(--space-2);
-  align-items: center;
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3);
-  font-weight: 600;
-  font-size: 13px;
+  border-radius: 50%;
   color: white;
   background: var(--accent);
   box-shadow: var(--shadow-brand);
+  margin-bottom: var(--space-1);
+  cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.new-button:hover:not(:disabled) { background: var(--accent-hover); }
-.new-button:active { background: var(--accent-pressed); }
-.new-button:disabled { cursor: not-allowed; opacity: .55; }
+.rail-new:hover { background: var(--accent-hover); }
+.rail-new:active { transform: scale(.94); }
 
-/* —— 导航 —— */
-.nav-list { display: grid; gap: 2px; }
-
-.nav-item, .settings-link {
-  position: relative;
-  border: 0;
-  width: 100%;
+/* 中部导航（撑满剩余空间，把设置顶到底部） */
+.rail-nav {
   display: flex;
-  gap: var(--space-3);
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
   align-items: center;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
+  flex: 1;
+}
+
+.rail-item, .rail-settings {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
   color: var(--text-muted);
   background: transparent;
-  text-align: left;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
+  cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.nav-item:hover, .settings-link:hover { background: var(--bg-inset); color: var(--text-default); }
-.nav-item.active {
-  color: var(--accent-text);
-  background: var(--accent-subtle);
-  font-weight: 600;
-}
-.nav-item.active::before {
-  position: absolute;
-  left: 0;
-  top: 7px;
-  bottom: 7px;
-  width: 3px;
-  border-radius: 0 2px 2px 0;
-  background: var(--accent);
-  content: "";
-}
-
-/* 笔记本列表（保留，当前未启用独立笔记本） */
-.sidebar-section { margin-top: var(--space-8); }
-.sidebar-label {
-  padding: 0 var(--space-2) var(--space-2);
-  color: var(--text-faint);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .06em;
-}
-.notebook-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 7px var(--space-2);
-  color: var(--text-muted);
-  font-size: 13px;
-}
-.notebook-row > span:first-child { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.notebook-row > span:nth-child(2) { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.notebook-row small {
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  color: var(--text-faint);
-  background: var(--bg-inset);
-  font-size: 10px;
-  font-weight: 700;
-}
-.settings-link { margin-top: auto; }
+.rail-item:hover, .rail-settings:hover { background: var(--bg-inset); color: var(--text-default); }
+.rail-item.active { color: var(--accent); background: var(--bg-inset); }
+.rail-settings { margin-top: auto; }
 
 /* —— 主内容区 —— */
 .main-content {
@@ -269,19 +203,7 @@
 .empty-state svg { margin: auto; color: var(--text-disabled); }
 .empty-state p { margin: 0; }
 
-/* =================== 响应式：侧栏 rail 模式 =================== */
-@media (max-width: 1080px) {
-  .app-shell { grid-template-columns: var(--rail-w) 1fr; }
-  .sidebar { padding: var(--space-3) var(--space-2); align-items: center; }
-  .brand { padding: var(--space-2) 0 var(--space-3); justify-content: center; }
-  .brand > span:last-child,
-  .new-button > span,
-  .nav-item > span,
-  .settings-link > span { display: none; }
-  .new-button { padding: var(--space-2); }
-  .nav-item, .settings-link { justify-content: center; padding: var(--space-2); gap: 0; }
-  .nav-list { gap: 4px; }
-}
+/* =================== 响应式 =================== */
 
 /* 极窄窗口：主内容再收紧边距 */
 @media (max-width: 520px) {

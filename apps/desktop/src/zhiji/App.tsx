@@ -774,41 +774,32 @@ export function App() {
   return (
     <div className="app-shell">
       <TitleBar />
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark">知</span>
-          <span>知记</span>
-        </div>
-        <button className="new-button" onClick={() => void createMeeting()}>
-          <Plus size={17} />
-          <span>新建会议</span>
+      <aside className="icon-rail">
+        <button className="rail-new" title="新建会议" onClick={() => void createMeeting()}>
+          <Plus size={20} />
         </button>
-        <nav className="nav-list">
-          <NavItem
+        <nav className="rail-nav">
+          <RailItem
             active={view === "home"}
-            icon={<House size={18} />}
+            icon={<House size={20} />}
+            title="首页"
             onClick={() => setView("home")}
-          >
-            首页
-          </NavItem>
-          <NavItem
+          />
+          <RailItem
             active={view === "meetings"}
-            icon={<UsersRound size={18} />}
+            icon={<UsersRound size={20} />}
+            title="会议"
             onClick={() => setView("meetings")}
-          >
-            会议
-          </NavItem>
-          <NavItem
+          />
+          <RailItem
             active={view === "tasks"}
-            icon={<CheckCircle2 size={18} />}
+            icon={<CheckCircle2 size={20} />}
+            title="待办"
             onClick={() => setView("tasks")}
-          >
-            待办
-          </NavItem>
+          />
         </nav>
-        <button className="settings-link" onClick={() => setView("settings")}>
-          <Settings size={18} />
-          <span>设置与智能功能</span>
+        <button className="rail-settings" title="设置" onClick={() => setView("settings")}>
+          <Settings size={20} />
         </button>
       </aside>
       <main className="main-content">
@@ -952,21 +943,25 @@ function TitleBar() {
   );
 }
 
-function NavItem({
+function RailItem({
   active,
   icon,
+  title,
   onClick,
-  children,
 }: {
   active: boolean;
   icon: ReactNode;
+  title: string;
   onClick: () => void;
-  children: string;
 }) {
   return (
-    <button className={`nav-item ${active ? "active" : ""}`} onClick={onClick}>
+    <button
+      className={`rail-item ${active ? "active" : ""}`}
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+    >
       {icon}
-      <span>{children}</span>
     </button>
   );
 }
@@ -980,27 +975,12 @@ function Home({
   onMeeting: () => void;
   onOpenMeeting: (meeting: Meeting) => void;
 }) {
-  const openTasks = workspace.tasks.filter((task) => !task.completed);
   return (
     <div className="page-grid home-grid">
       <section className="home-quickbar">
         <button className="primary-button" onClick={onMeeting}>
           <Mic size={17} /> 开始会议
         </button>
-      </section>
-      <section className="stats-row">
-        <Stat
-          icon={<UsersRound />}
-          label="全部会议"
-          value={workspace.meetings.length}
-          tone="brand"
-        />
-        <Stat
-          icon={<CheckCircle2 />}
-          label="待完成"
-          value={openTasks.length}
-          tone="warning"
-        />
       </section>
       <section className="panel recent-panel recent-panel-full">
         <div className="panel-title">
@@ -1020,39 +1000,16 @@ function Home({
             </span>
             <span>
               <strong>{meeting.title}</strong>
-              <small>
-                {dateTime(meeting.startedAt)} · {meeting.status}
-              </small>
+              <small>{dateTime(meeting.startedAt)}</small>
             </span>
+            <StatusDot status={meeting.status} />
             <ChevronRight size={17} />
           </button>
         ))}
         {workspace.meetings.length === 0 && (
-          <Empty label="还没有会议，开始记录第一场吧。" />
+          <Empty label="还没有会议，点 + 新建第一场。" />
         )}
       </section>
-    </div>
-  );
-}
-
-function Stat({
-  icon,
-  label,
-  value,
-  tone = "brand",
-}: {
-  icon: ReactNode;
-  label: string;
-  value: number;
-  tone?: "brand" | "info" | "warning";
-}) {
-  return (
-    <div className="stat-card">
-      <span className={tone}>{icon}</span>
-      <div>
-        <strong>{value}</strong>
-        <small>{label}</small>
-      </div>
     </div>
   );
 }
@@ -1169,10 +1126,9 @@ function Meetings({
             </span>
             <span>
               <strong>{item.title}</strong>
-              <small>
-                {dateTime(item.startedAt)} · {item.status}
-              </small>
+              <small>{dateTime(item.startedAt)}</small>
             </span>
+            <StatusDot status={item.status} />
             {item.audioPath && <Mic size={14} />}
           </button>
         ))}
@@ -1208,8 +1164,7 @@ function Meetings({
                 </div>
                 <div className="meeting-meta">
                   <span>{dateTime(meeting.startedAt)}</span>
-                  <span>·</span>
-                  <StatusBadge status={meeting.status} />
+                  <StatusDot status={meeting.status} />
                 </div>
               </div>
               <div className="editor-buttons">
@@ -1851,21 +1806,13 @@ function SpeakerTimeline({
   );
 }
 
-// 状态徽章：根据会议 status 字符串返回对应配色的 pill
-function StatusBadge({ status }: { status: string }) {
+// 状态圆点：根据会议 status 字符串返回对应配色（绿=完成 / 橙=进行中 / 灰=待处理）
+function StatusDot({ status }: { status: string }) {
   let cls = "neutral";
-  if (status.includes("区分") || status.includes("发言人")) {
-    cls = "brand";
-  } else if (status.includes("纪要") || status.includes("分析")) {
-    cls = "success";
-  } else if (status.includes("转写")) {
-    cls = "info";
-  } else if (status.includes("录音") || status.includes("导入")) {
-    cls = "info";
-  } else if (status === "草稿") {
-    cls = "neutral";
-  }
-  return <span className={`status-badge ${cls}`}>{status}</span>;
+  if (status.includes("区分") || status.includes("发言人")) cls = "brand";
+  else if (status.includes("纪要") || status.includes("分析")) cls = "success";
+  else if (status.includes("转写") || status.includes("录音") || status.includes("导入")) cls = "info";
+  return <span className={`status-dot ${cls}`} title={status} />;
 }
 
 

@@ -1,18 +1,18 @@
 /* 设计令牌：现代 Windows 11 (Fluent 2) 桌面风。
-   - 强调色 = 通信蓝 #0F6CBD；中性灰阶带微冷调（Fluent 层叠）
+   - 强调色 = 微信绿 #07C160；中性灰阶带微冷调（Fluent 层叠）
    - Segoe UI 系统字体栈（Windows 原生观感关键）
    - 圆角克制（控件 6 / 面板 10）；柔和分层阴影；Mica 半透明
    - 明暗双主题；4px 间距网格
    为兼容既有组件引用，保留 --brand-* 作为现代蓝的别名。 */
 
 :root {
-  /* —— 强调色（通信蓝）—— */
-  --accent:            #0F6CBD;
-  --accent-hover:      #0C599F;
-  --accent-pressed:    #0A4E8A;
-  --accent-subtle:     #EAF2FB;   /* 浅蓝底：选中态 / soft bg */
-  --accent-text:       #0F6CBD;   /* 蓝字 */
-  --accent-ring:       rgba(15, 108, 189, .35);
+  /* —— 强调色（微信绿）—— */
+  --accent:            #07C160;
+  --accent-hover:      #06AD56;
+  --accent-pressed:    #059A4C;
+  --accent-subtle:     #E7F7EE;   /* 浅绿底：选中态 / soft bg */
+  --accent-text:       #07C160;
+  --accent-ring:       rgba(7, 193, 96, .30);
 
   /* —— 兼容别名（既有组件引用，统一映射到现代蓝）—— */
   --brand-from:        var(--accent);
@@ -40,7 +40,7 @@
   --text-strong:   #1B1B1B;
   --text-default:  #2B2B2B;
   --text-muted:    #5E5E5E;
-  --text-faint:    #8A8A8A;
+  --text-faint:    #6B6B6B;   /* 提对比至 ≥4.5:1（原 #8A8A8A ≈3.5:1 不达标） */
   --text-disabled: #B7B7B7;
   --text-inverse:  #FFFFFF;
 
@@ -99,12 +99,12 @@
 
 /* ============================ 深色主题 ============================ */
 [data-theme="dark"] {
-  --accent:        #4CC2FF;
-  --accent-hover:  #6FCBFF;
-  --accent-pressed:#8FD4FF;
-  --accent-subtle: rgba(124, 177, 234, .16);
-  --accent-text:   #4CC2FF;
-  --accent-ring:   rgba(124, 177, 234, .45);
+  --accent:        #2DC66B;
+  --accent-hover:  #43D27E;
+  --accent-pressed:#5BDD8E;
+  --accent-subtle: rgba(45, 214, 123, .16);
+  --accent-text:   #2DC66B;
+  --accent-ring:   rgba(45, 214, 123, .40);
 
   --bg-app:     #202020;
   --bg-surface: #2B2B2B;
