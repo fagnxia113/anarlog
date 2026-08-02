@@ -1,9 +1,12 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import {
   Check,
   CheckCircle2,
+  Download,
   ChevronRight,
   House,
   LoaderCircle,
@@ -11,6 +14,7 @@ import {
   Mic,
   Minimize2,
   MoreHorizontal,
+  RefreshCw,
   Pause,
   Play,
   Plus,
@@ -189,6 +193,13 @@ export function App() {
   const asrEngineRef = useRef(asrEngine);
   const savedSnapshot = useRef<{ id: string; json: string }>({ id: "", json: "" });
 
+  const [updateState, setUpdateState] = useState<
+    "idle" | "checking" | "available" | "latest" | "downloading" | "error"
+  >("idle");
+  const [updateVersion, setUpdateVersion] = useState("");
+  const [updateProgress, setUpdateProgress] = useState(0);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+
   useEffect(() => {
     asrStatusRef.current = asrStatus;
   }, [asrStatus]);
@@ -199,6 +210,28 @@ export function App() {
     asrEngineRef.current = asrEngine;
   }, [asrEngine]);
 
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const update = await check();
+        if (!active) return;
+        if (update) {
+          setUpdateVersion(update.version);
+          setUpdateState("available");
+          setShowUpdateModal(true);
+        } else {
+          setUpdateState("latest");
+        }
+      } catch {
+        // 启动时不弹错：网络不可达时不影响正常使用
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const reload = async () => {
     const next = await invoke<Workspace>("load_workspace");
     setWorkspace(next);
@@ -208,6 +241,52 @@ export function App() {
   const notify = (next: string) => {
     setMessage(next);
     window.setTimeout(() => setMessage(""), 4200);
+  };
+
+  const manualCheck = async () => {
+    setUpdateState("checking");
+    try {
+      const update = await check();
+      if (update) {
+        setUpdateVersion(update.version);
+        setUpdateState("available");
+        setShowUpdateModal(true);
+      } else {
+        setUpdateState("latest");
+        notify("已是最新版本");
+      }
+    } catch (error: unknown) {
+      setUpdateState("error");
+      notify(`检查更新失败：${String(error)}`);
+    }
+  };
+
+  const installUpdate = async () => {
+    try {
+      const update = await check();
+      if (!update) {
+        setShowUpdateModal(false);
+        setUpdateState("latest");
+        return;
+      }
+      setUpdateState("downloading");
+      let downloaded = 0;
+      let total = 0;
+      await update.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          total = event.data.contentLength ?? 0;
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          if (total > 0) {
+            setUpdateProgress(Math.round((downloaded / total) * 100));
+          }
+        }
+      });
+      await relaunch();
+    } catch (error: unknown) {
+      setUpdateState("error");
+      notify(`更新失败：${String(error)}`);
+    }
   };
 
   useEffect(() => {
@@ -824,9 +903,27 @@ export function App() {
             onAsrKeyInputChange={setAsrKeyInput}
             onSaveAsrEngine={(next, withKey) => void saveAsrEngine(next, withKey)}
             onClearCloudAsrKey={() => void clearCloudAsrKey()}
+            onCheckUpdate={() => void manualCheck()}
+            updateState={updateState}
+            updateVersion={updateVersion}
           />
         )}
       </main>
+      {showUpdateModal && (
+        <UpdateModal
+          version={updateVersion}
+          state={
+            updateState === "downloading"
+              ? "downloading"
+              : updateState === "error"
+                ? "error"
+                : "available"
+          }
+          progress={updateProgress}
+          onInstall={() => void installUpdate()}
+          onDismiss={() => setShowUpdateModal(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1879,6 +1976,9 @@ function TaskGroup({
 
 function SettingsView({
   workspace,
+  onCheckUpdate,
+  updateState,
+  updateVersion,
   aiSettings,
   asrStatus,
   asrEngine,
@@ -1911,6 +2011,15 @@ function SettingsView({
   onAsrKeyInputChange: (key: string) => void;
   onSaveAsrEngine: (next: AsrEngineSettings, withKey: boolean) => void;
   onClearCloudAsrKey: () => void;
+  onCheckUpdate: () => void;
+  updateState:
+    | "idle"
+    | "checking"
+    | "available"
+    | "latest"
+    | "downloading"
+    | "error";
+  updateVersion: string;
 }) {
   const cloud = asrEngine.provider === "cloud";
   const presetValue =
@@ -2179,6 +2288,96 @@ function SettingsView({
           </p>
         </div>
       </section>
+
+      <h3 className="settings-section-title">更新</h3>
+      <section className="settings-card">
+        <div>
+          <h3>软件更新</h3>
+          <p>启动时会自动检查 GitHub 上的新版本，也可手动检查。</p>
+        </div>
+        <div className="settings-actions">
+          <button
+            className="primary-button"
+            onClick={onCheckUpdate}
+            disabled={updateState === "checking" || updateState === "downloading"}
+          >
+            {updateState === "checking" || updateState === "downloading" ? (
+              <LoaderCircle className="spin" size={16} />
+            ) : (
+              <RefreshCw size={16} />
+            )}
+            {updateState === "checking"
+              ? "检查中…"
+              : updateState === "downloading"
+                ? "更新中…"
+                : "检查更新"}
+          </button>
+          {updateState === "latest" && (
+            <span className={`ai-status ready`}>已是最新</span>
+          )}
+          {updateState === "available" && (
+            <span className={`ai-status ready`}>发现 {updateVersion}</span>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function UpdateModal({
+  version,
+  state,
+  progress,
+  onInstall,
+  onDismiss,
+}: {
+  version: string;
+  state: "available" | "downloading" | "error";
+  progress: number;
+  onInstall: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="modal-overlay" onClick={onDismiss}>
+      <div className="modal update-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <span className="round-icon accent">
+            <Download size={19} />
+          </span>
+          <button className="icon-button" onClick={onDismiss} title="关闭">
+            <X size={16} />
+          </button>
+        </div>
+        <h2>发现新版本 {version}</h2>
+        <p>已从 GitHub 下载安装包并完成签名校验，安装后重启即可完成升级。</p>
+        {state === "downloading" ? (
+          <div className="update-progress">
+            <div className="progress-bar">
+              <div style={{ width: `${progress}%` }} />
+            </div>
+            <small>正在下载并安装… {progress}%</small>
+          </div>
+        ) : (
+          <div className="modal-actions">
+            <button className="secondary-button" onClick={onDismiss}>
+              稍后
+            </button>
+            <button
+              className="primary-button"
+              onClick={onInstall}
+              disabled={state === "error"}
+            >
+              <Download size={16} />
+              下载并安装
+            </button>
+          </div>
+        )}
+        {state === "error" && (
+          <small className="runtime-warning">
+            更新失败，请稍后重试，或去 GitHub 下载安装包。
+          </small>
+        )}
+      </div>
     </div>
   );
 }

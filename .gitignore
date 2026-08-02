@@ -32,3 +32,7 @@ internal
 .codex-security-artifacts-*/
 .codex-security-work-ledger-*.jsonl
 .claude/launch.json
+
+# Tauri updater signing key (private key must NEVER be committed)
+*.key
+*.pem

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "知记",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "mainBinaryName": "zhiji",
   "identifier": "com.zhiji.meetnote",
   "build": {
@@ -36,7 +36,7 @@
   "bundle": {
     "publisher": "知记",
     "active": true,
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis"],
     "resources": {
       "resources/funasr-runtime/": "funasr-runtime/",
@@ -57,6 +57,14 @@
       "webviewInstallMode": {
         "type": "embedBootstrapper"
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhBUZ8+93Dkme8HUKvhsETFd/s/i+ZGABCEaV7OKm/54Exbd6Nx96MwYC62BFaEaTbt/MRz78LXKgJNXIKptvSl33lroq2oanVAId7Ty++qtRiy39A98EK+xvDlnFRL2Vdtat6Fv2tevGx9UfmDWai2FunDVAdWEwtPi1eumx+/9tf/oEijtiNckn64UGyqHqKC5nAT1N/BeG8KPM/xc/c62ce78zu6ZgoZl8vDBpDuf+HzDA5WcBDtpGhgCxmLrm+fS7gxe0mSIEFt2+QAGYAVLVfkZQRtHsESTrAJp/iXLJS6T1dYDfrKzx39+bZ8oiOF4f+LfHn0UOddvYuscgZwIDAQAB",
+      "endpoints": [
+        "https://github.com/fagnxia113/anarlog/releases/latest/download/latest.json"
+      ]
     }
   }
 }

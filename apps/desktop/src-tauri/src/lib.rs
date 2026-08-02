@@ -1090,6 +1090,8 @@ fn delete_meeting(state: State<'_, AppState>, meeting_id: String) -> Result<(), 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::init())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let state = open_state(app.handle())?;
             app.manage(state);
