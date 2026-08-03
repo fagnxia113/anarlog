@@ -86,11 +86,21 @@ jobs:
         env:
           RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          $k = ($env:RAW_KEY -replace '-----BEGIN RSA PRIVATE KEY-----', '' -replace '-----END RSA PRIVATE KEY-----', '' -replace "`r", '' -replace "`n", '' -replace ' ', '').Trim()
+          $raw = $env:RAW_KEY
+          if ($raw -match 'BEGIN') {
+            # Full PEM supplied. Tauri v2 base64-decodes TAURI_SIGNING_PRIVATE_KEY and
+            # then expects to parse a PEM string, so we base64-encode the WHOLE PEM
+            # (headers + newlines) - NOT just the DER body. Stripping the headers
+            # produced "invalid utf-8 sequence" because the decoded bytes were binary DER.
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($raw)
+            $k = [Convert]::ToBase64String($bytes)
+          } else {
+            # Already a bare base64 string (e.g. `tauri signer generate` output): pass through.
+            $k = ($raw -replace "`r", '' -replace "`n", '' -replace ' ', '').Trim()
+          }
           if (-not $k) { throw "Signing key became empty after normalization" }
-          if ($k.StartsWith('-')) { throw "Signing key still starts with '-' after normalization (expected bare base64)" }
           [System.IO.File]::AppendAllText($env:GITHUB_ENV, "TAURI_SIGNING_PRIVATE_KEY=$k`n")
-          Write-Host "Signing key normalized to bare base64 (length: $($k.Length))."
+          Write-Host "Signing key normalized (length: $($k.Length))."
 
       - name: Build, sign and release with tauri-action
         uses: tauri-apps/tauri-action@v0
