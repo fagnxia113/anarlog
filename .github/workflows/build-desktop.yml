@@ -81,10 +81,21 @@ jobs:
             Copy-Item -Path $source -Destination (Join-Path $target $dll) -Force
           }
 
+      - name: Normalize signing key to base64
+        shell: pwsh
+        env:
+          RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          $k = ($env:RAW_KEY -replace '-----BEGIN RSA PRIVATE KEY-----', '' -replace '-----END RSA PRIVATE KEY-----', '' -replace "`r", '' -replace "`n", '' -replace ' ', '').Trim()
+          if (-not $k) { throw "Signing key became empty after normalization" }
+          if ($k.StartsWith('-')) { throw "Signing key still starts with '-' after normalization (expected bare base64)" }
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "TAURI_SIGNING_PRIVATE_KEY=$k`n")
+          Write-Host "Signing key normalized to bare base64 (length: $($k.Length))."
+
       - name: Build, sign and release with tauri-action
         uses: tauri-apps/tauri-action@v0
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/desktop
