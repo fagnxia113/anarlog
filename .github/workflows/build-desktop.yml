@@ -81,31 +81,18 @@ jobs:
             Copy-Item -Path $source -Destination (Join-Path $target $dll) -Force
           }
 
-      - name: Normalize signing key to base64
-        shell: pwsh
-        env:
-          RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: |
-          $raw = $env:RAW_KEY
-          if ($raw -match 'BEGIN') {
-            # Full PEM supplied. Tauri v2 base64-decodes TAURI_SIGNING_PRIVATE_KEY and
-            # then expects to parse a PEM string, so we base64-encode the WHOLE PEM
-            # (headers + newlines) - NOT just the DER body. Stripping the headers
-            # produced "invalid utf-8 sequence" because the decoded bytes were binary DER.
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($raw)
-            $k = [Convert]::ToBase64String($bytes)
-          } else {
-            # Already a bare base64 string (e.g. `tauri signer generate` output): pass through.
-            $k = ($raw -replace "`r", '' -replace "`n", '' -replace ' ', '').Trim()
-          }
-          if (-not $k) { throw "Signing key became empty after normalization" }
-          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "TAURI_SIGNING_PRIVATE_KEY=$k`n")
-          Write-Host "Signing key normalized (length: $($k.Length))."
-
       - name: Build, sign and release with tauri-action
         uses: tauri-apps/tauri-action@v0
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          # Tauri v2 updater uses Ed25519/minisign keys. `tauri signer generate`
+          # prints the private key as base64 - pass it through verbatim. Do NOT
+          # re-base64 or strip anything: the printed value IS what Tauri consumes.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # The key was generated with an empty password (minisign still stores it
+          # as "encrypted"), so the empty password env is REQUIRED for Tauri to
+          # decrypt and sign during the build. If you ever regenerate the key with
+          # a real password, put that password in a secret and reference it here.
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/desktop
