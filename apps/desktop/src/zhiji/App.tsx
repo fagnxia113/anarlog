@@ -1372,13 +1372,19 @@ function Meetings({
                   {activeTab === "minutes" && (
                     <div className="tab-panel-doc">
                       {meeting.minutes.trim() || aiConfigured ? (
-                        <EditorField
-                          label="会议纪要"
-                          hint="智能分析会生成主题、关键讨论、结论、风险与下一步"
-                          value={meeting.minutes}
-                          onChange={(minutes) => onChange({ ...meeting, minutes })}
-                          placeholder="生成纪要后显示在这里"
-                        />
+                        <>
+                          <div className="editor-field">
+                            <div>
+                              <h3>会议纪要</h3>
+                              <small>智能分析会生成主题、关键讨论、结论、风险与下一步</small>
+                            </div>
+                          </div>
+                          <MarkdownEditor
+                            value={meeting.minutes}
+                            onChange={(minutes) => onChange({ ...meeting, minutes })}
+                            placeholder="生成纪要后显示在这里"
+                          />
+                        </>
                       ) : (
                         <div className="tab-panel-empty">
                           点击上方「生成智能纪要」，AI 会基于转写稿自动生成结构化纪要。
@@ -1807,6 +1813,7 @@ function MarkdownEditor({
   placeholder?: string;
 }) {
   const lastEmitted = useRef(value);
+  const didInit = useRef(false);
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -1829,9 +1836,23 @@ function MarkdownEditor({
   });
 
   useEffect(() => {
-    if (editor && value !== lastEmitted.current) {
+    if (!editor) return;
+    // Persisted notes/minutes are stored as Markdown strings. TipTap's
+    // setContent expects HTML, so parse via tiptap-markdown's parser first —
+    // otherwise "# 标题" / "**加粗**" render as literal characters.
+    const parser = (editor.storage as any).markdown?.parser;
+    const toContent = (md: string) => (parser ? parser.parse(md || "") : md || "");
+    if (!didInit.current) {
+      // First time the editor is ready: guarantee the stored Markdown is
+      // rendered as formatted HTML (defends against any init-parse gap).
+      didInit.current = true;
       lastEmitted.current = value;
-      editor.commands.setContent(value, false);
+      editor.commands.setContent(toContent(value), false);
+      return;
+    }
+    if (value !== lastEmitted.current) {
+      lastEmitted.current = value;
+      editor.commands.setContent(toContent(value), false);
     }
   }, [value, editor]);
 
