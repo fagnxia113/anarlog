@@ -107,24 +107,26 @@ jobs:
       # tauri-action does not reliably emit latest.json for non-ASCII installer
       # names, so we generate it explicitly. The updater endpoint points at
       # /releases/latest/download/latest.json and needs this JSON manifest.
+      # The .sig was produced locally by tauri-action's build step, so we read
+      # it from disk (no network round-trip) to avoid 404 / rate-limit flakiness
+      # during asset propagation.
       - name: Generate and upload latest.json
-        if: startsWith(github.ref, 'refs/tags/')
+        if: success() && startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}"
           $version = $tag.TrimStart('v')
+          $sigName = "知记_${version}_x64-setup.exe.sig"
           $exeName = "知记_${version}_x64-setup.exe"
-          $sigName = "$exeName.sig"
-          $encodedExe = [System.Uri]::EscapeDataString($exeName)
-          $encodedSig = [System.Uri]::EscapeDataString($sigName)
-          $baseUrl = "https://github.com/fagnxia113/anarlog/releases/download/$tag"
 
-          # Download the minisign .sig produced by the build
-          $sigFile = Join-Path $env:RUNNER_TEMP "zhiji-latest.sig"
-          Invoke-WebRequest -Uri "$baseUrl/$encodedSig" -OutFile $sigFile
-          $signature = (Get-Content $sigFile -Raw).Trim()
+          # Locate the local .sig artifact left by the build step
+          $sigFile = Get-ChildItem -Path . -Recurse -Filter $sigName | Select-Object -First 1
+          if (-not $sigFile) { throw "Local .sig artifact not found: $sigName" }
+          $signature = (Get-Content $sigFile.FullName -Raw).Trim()
 
           # Build the updater manifest
+          $encodedExe = [System.Uri]::EscapeDataString($exeName)
+          $exeUrl = "https://github.com/fagnxia113/anarlog/releases/download/$tag/$encodedExe"
           $manifest = [ordered]@{
             version   = $version
             notes     = "自动更新版本"
@@ -132,7 +134,7 @@ jobs:
             platforms = [ordered]@{
               "windows-x86_64" = [ordered]@{
                 signature = $signature
-                url       = "$baseUrl/$encodedExe"
+                url       = $exeUrl
               }
             }
           } | ConvertTo-Json -Depth 5 -Compress
