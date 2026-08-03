@@ -61,7 +61,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIwNjFFMUYwNEUwOEY2RjYK\nUldUMjlnaE84T0ZoSVA1QlNDTnVIaEJVV0VHb3ZHbFNBQ0xHMURUTjhiWExrbGRUV28rcCtZTi8K",
+      "pubkey": "RWT29ghO8OFhIP5BSCNuHhBUWEGovGlSACLG1DTN8bXLkldTWo+p+YN/",
       "endpoints": [
         "https://github.com/fagnxia113/anarlog/releases/latest/download/latest.json"
       ]
