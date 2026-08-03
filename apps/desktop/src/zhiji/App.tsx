@@ -18,7 +18,15 @@ import {
   Pause,
   Play,
   Plus,
+  Pencil,
+  CalendarDays,
   Search,
+  Bold,
+  Italic,
+  Heading1,
+  Heading2,
+  List,
+  ListOrdered,
   Settings,
   Sparkles,
   Square,
@@ -29,6 +37,10 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Placeholder from "@tiptap/extension-placeholder";
+import { Markdown } from "tiptap-markdown";
 
 type Meeting = {
   id: string;
@@ -452,16 +464,29 @@ export function App() {
   };
 
   const addTask = async (
+    title: string,
+    dueDate: string | null = null,
     sourceType: string | null = null,
     sourceId: string | null = null,
   ) => {
-    const title = window.prompt("待办事项");
-    if (!title?.trim()) return;
+    const trimmed = title.trim();
+    if (!trimmed) return;
     await invoke("upsert_task", {
-      task: newTask(title.trim(), sourceType, sourceId),
+      task: { ...newTask(trimmed, sourceType, sourceId), dueDate },
     });
     await reload();
     notify("已加入待办");
+  };
+
+  const saveTask = async (task: Task) => {
+    await invoke("upsert_task", { task });
+    await reload();
+  };
+
+  const deleteTask = async (task: Task) => {
+    if (!window.confirm(`确定删除待办“${task.title}”吗？`)) return;
+    await invoke("delete_task", { taskId: task.id });
+    await reload();
   };
 
   const toggleTask = async (task: Task) => {
@@ -849,8 +874,10 @@ export function App() {
             onSave={() => void saveMeeting()}
             onDelete={() => void deleteMeeting()}
             onImport={() => void importMeetingAudio()}
-            onTask={() => void addTask("meeting", selectedMeeting?.id ?? null)}
+            onTask={(title, due) => void addTask(title, due, "meeting", selectedMeeting?.id ?? null)}
             onToggleTask={(task) => void toggleTask(task)}
+            onSaveTask={(task) => void saveTask(task)}
+            onDeleteTask={(task) => void deleteTask(task)}
             recording={recording}
             recordingSeconds={recordingSeconds}
             onRecord={() => void startRecording()}
@@ -872,8 +899,10 @@ export function App() {
         {view === "tasks" && (
           <Tasks
             tasks={workspace.tasks}
-            onAdd={() => void addTask()}
+            onAdd={(title, due) => void addTask(title, due)}
             onToggle={(task) => void toggleTask(task)}
+            onSave={(task) => void saveTask(task)}
+            onDelete={(task) => void deleteTask(task)}
           />
         )}
         {view === "settings" && (
@@ -1026,6 +1055,8 @@ function Meetings({
   onImport,
   onTask,
   onToggleTask,
+  onSaveTask,
+  onDeleteTask,
   recording,
   recordingSeconds,
   onRecord,
@@ -1052,8 +1083,10 @@ function Meetings({
   onSave: () => void;
   onDelete: () => void;
   onImport: () => void;
-  onTask: () => void;
+  onTask: (title: string, due: string | null) => void;
   onToggleTask: (task: Task) => void;
+  onSaveTask: (task: Task) => void;
+  onDeleteTask: (task: Task) => void;
   recording: boolean;
   recordingSeconds: number;
   onRecord: () => void;
@@ -1074,6 +1107,7 @@ function Meetings({
   // 音文联动：seekRequest 用于点击说话人段落后跳转音频时间，currentMs 用于高亮当前播放段落
   const [seekRequest, setSeekRequest] = useState<{ time: number; nonce: number } | null>(null);
   const [currentMs, setCurrentMs] = useState(-1);
+  const [taskComposing, setTaskComposing] = useState(false);
   // 会议详情页 Tab 状态（保留在父级，避免切 Tab 丢状态；AudioPlayer 在 sticky 顶部不进 Tab）
   const [activeTab, setActiveTab] = useState<"notes" | "minutes" | "transcript" | "speakers" | "tasks">(
     "minutes",
@@ -1148,19 +1182,13 @@ function Meetings({
                       onChange({ ...meeting, title: event.target.value })
                     }
                   />
-                  <button
-                    className="secondary-button compact-button"
-                    disabled={!aiConfigured || !meeting.transcript.trim() || processing !== null}
+                  <IconButton
+                    icon={Wand2}
+                    label="AI 重命名（按「日期-主题」）"
                     onClick={onRename}
-                    title="根据会议内容，自动按「日期-主题」重新命名"
-                  >
-                    {processing === "renaming" ? (
-                      <LoaderCircle className="spin" size={14} />
-                    ) : (
-                      <Wand2 size={14} />
-                    )}
-                    {processing === "renaming" ? "命名中" : "AI 重命名"}
-                  </button>
+                    disabled={!aiConfigured || !meeting.transcript.trim() || processing !== null}
+                    loading={processing === "renaming"}
+                  />
                 </div>
                 <div className="meeting-meta">
                   <span>{dateTime(meeting.startedAt)}</span>
@@ -1171,22 +1199,19 @@ function Meetings({
                 {autoSaveHint && (
                   <small className="autosave-hint">{autoSaveHint}</small>
                 )}
-                <button
-                  className="icon-danger-button"
-                  disabled={recording || processing !== null}
+                <IconButton
+                  icon={Trash2}
+                  label="删除会议"
+                  danger
                   onClick={onDelete}
-                  title="删除会议"
-                >
-                  <Trash2 size={16} />
-                </button>
-                <button className="secondary-button" onClick={onTask}>
-                  <Plus size={15} />
-                  待办
-                </button>
-                <button className="primary-button" onClick={onSave}>
-                  <Check size={15} />
-                  保存
-                </button>
+                  disabled={recording || processing !== null}
+                />
+                <IconButton
+                  icon={Plus}
+                  label="新建待办"
+                  onClick={() => setTaskComposing((v) => !v)}
+                />
+                <IconButton icon={Check} label="保存会议" primary onClick={onSave} />
               </div>
             </div>
             {/* 会前背景：会议材料/议程/背景说明，转写与生成纪要时作为参考 */}
@@ -1307,23 +1332,14 @@ function Meetings({
                   <h3>我的笔记</h3>
                   <small>开会时随手记，一直显示在这里，不会被智能纪要覆盖</small>
                 </div>
-                <textarea
-                  className="my-notes-input"
+                <MarkdownEditor
                   value={meeting.notes}
-                  onChange={(event) =>
-                    onChange({ ...meeting, notes: event.target.value })
-                  }
-                  placeholder="随时记下你的观察与想法"
+                  onChange={(md) => onChange({ ...meeting, notes: md })}
+                  placeholder="随时记下你的观察与想法（支持 Markdown：# 标题、**加粗**、- 列表）"
                 />
               </section>
               <section className="meeting-tabs">
                 <div className="tab-bar">
-                  <button
-                    className={`tab-item tab-notes ${activeTab === "notes" ? "active" : ""}`}
-                    onClick={() => setActiveTab("notes")}
-                  >
-                    我的笔记
-                  </button>
                   <button
                     className={`tab-item ${activeTab === "minutes" ? "active" : ""}`}
                     onClick={() => setActiveTab("minutes")}
@@ -1353,22 +1369,6 @@ function Meetings({
                   </button>
                 </div>
                 <div className="tab-panel" key={activeTab}>
-                  {activeTab === "notes" && (
-                    <div className="meeting-editor">
-                      <div className="editor-field">
-                        <h3>我的笔记</h3>
-                        <small>开会时随手记，一直显示在这里，不会被智能纪要覆盖</small>
-                        <textarea
-                          value={meeting.notes}
-                          onChange={(event) =>
-                            onChange({ ...meeting, notes: event.target.value })
-                          }
-                          placeholder="随时记下你的观察与想法"
-                          style={{ minHeight: 320 }}
-                        />
-                      </div>
-                    </div>
-                  )}
                   {activeTab === "minutes" && (
                     <div className="tab-panel-doc">
                       {meeting.minutes.trim() || aiConfigured ? (
@@ -1421,28 +1421,34 @@ function Meetings({
                       <div>
                         <div className="section-heading">
                           <h3>本会议待办</h3>
-                          <button className="secondary-button compact-button" onClick={onTask}>
+                          <button
+                            className="icon-btn"
+                            title="添加待办"
+                            onClick={() => setTaskComposing((v) => !v)}
+                          >
                             <Plus size={14} />
-                            添加
                           </button>
                         </div>
+                        {taskComposing && (
+                          <TaskComposer
+                            autoFocus
+                            onAdd={(title, due) => {
+                              onTask(title, due);
+                              setTaskComposing(false);
+                            }}
+                            onCancel={() => setTaskComposing(false)}
+                          />
+                        )}
                         {meetingTasks.length > 0 ? (
                           <section className="task-group">
                             {meetingTasks.map((task) => (
-                              <label
-                                className={`task-row ${task.completed ? "done" : ""}`}
+                              <TaskRow
                                 key={task.id}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={task.completed}
-                                  onChange={() => onToggleTask(task)}
-                                />
-                                <span className="checkmark">
-                                  {task.completed && <Check size={13} />}
-                                </span>
-                                <span>{task.title}</span>
-                              </label>
+                                task={task}
+                                onToggle={onToggleTask}
+                                onSave={onSaveTask}
+                                onDelete={onDeleteTask}
+                              />
                             ))}
                           </section>
                         ) : (
@@ -1531,79 +1537,54 @@ function AiWorkflow({
       </div>
       <div className="ai-flow-actions">
         {autoTranscribing ? (
-          <button className="secondary-button" disabled>
-            <LoaderCircle className="spin" size={15} />
-            正在自动转写…
-          </button>
+          <IconButton icon={Mic} label="正在自动转写…" loading disabled />
         ) : !engineReady ? (
-          <button className="secondary-button" onClick={onOpenSettings}>
-            {cloud ? "配置云端转写" : "下载本地模型"}
-          </button>
+          <IconButton
+            icon={cloud ? Settings : Download}
+            label={cloud ? "配置云端转写" : "下载本地模型"}
+            onClick={onOpenSettings}
+          />
         ) : (
-          <button
-            className="secondary-button"
-            disabled={!meeting.audioPath || processing !== null}
-            onClick={handleTranscribe}
-            title={
+          <IconButton
+            icon={Mic}
+            label={
               cloud
                 ? "上传录音到云端服务完成转写"
                 : speakerReady
                   ? "一次性完成转写与说话人分离"
                   : "本地转写；安装说话人引擎后会同时区分发言人"
             }
-          >
-            {transcribing ? (
-              <LoaderCircle className="spin" size={15} />
-            ) : (
-              <Mic size={15} />
-            )}
-            {transcribing
-              ? "正在转写…"
-              : cloud
-                ? "开始云端转写"
-                : speakerReady
-                  ? "开始转写（含说话人分离）"
-                  : "开始转写"}
-          </button>
+            onClick={handleTranscribe}
+            disabled={!meeting.audioPath || processing !== null}
+            loading={transcribing}
+          />
         )}
         {!cloud && !speakerReady && asrStatus.installed && !autoTranscribing ? (
-          <button
-            className="secondary-button"
-            disabled={processing !== null}
+          <IconButton
+            icon={UsersRound}
+            label="安装说话人引擎"
             onClick={onInstallSpeaker}
-          >
-            {processing === "installingSpeaker" ? (
-              <LoaderCircle className="spin" size={15} />
-            ) : (
-              <UsersRound size={15} />
-            )}
-            {processing === "installingSpeaker"
-              ? "正在安装（请稍候）"
-              : "安装说话人引擎"}
-          </button>
+            loading={processing === "installingSpeaker"}
+            disabled={processing !== null}
+          />
         ) : null}
         {!aiConfigured ? (
-          <button
-            className="primary-button"
-            disabled={!meeting.transcript.trim()}
+          <IconButton
+            icon={Sparkles}
+            label="配置智能纪要"
+            primary
             onClick={onOpenSettings}
-          >
-            <Sparkles size={15} />
-            配置智能纪要
-          </button>
+            disabled={!meeting.transcript.trim()}
+          />
         ) : (
-          <button
-            className="primary-button"
-            disabled={!meeting.transcript.trim() || processing !== null}
+          <IconButton
+            icon={Sparkles}
+            label="生成智能纪要"
+            primary
             onClick={onAnalyze}
-          >
-            {processing === "analyzing" ? (
-              <LoaderCircle className="spin" size={15} />
-            ) : (
-              <Sparkles size={15} />
-            )}
-            {processing === "analyzing" ? "正在分析" : "生成智能纪要"}
-          </button>
+            loading={processing === "analyzing"}
+            disabled={!meeting.transcript.trim() || processing !== null}
+          />
         )}
       </div>
     </div>
@@ -1816,6 +1797,109 @@ function StatusDot({ status }: { status: string }) {
 }
 
 
+function MarkdownEditor({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (markdown: string) => void;
+  placeholder?: string;
+}) {
+  const lastEmitted = useRef(value);
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      Placeholder.configure({ placeholder: placeholder ?? "开始记录…" }),
+      Markdown.configure({
+        html: false,
+        transformPastedText: true,
+        transformCopiedText: true,
+      }),
+    ],
+    content: value,
+    onUpdate: ({ editor }) => {
+      const md = editor.storage.markdown.getMarkdown();
+      lastEmitted.current = md;
+      onChange(md);
+    },
+    editorProps: {
+      attributes: { class: "md-editor-content" },
+    },
+  });
+
+  useEffect(() => {
+    if (editor && value !== lastEmitted.current) {
+      lastEmitted.current = value;
+      editor.commands.setContent(value, false);
+    }
+  }, [value, editor]);
+
+  if (!editor) return null;
+
+  return (
+    <div className="md-editor">
+      <div className="md-toolbar">
+        <button
+          type="button"
+          className={`md-tool${editor.isActive("bold") ? " active" : ""}`}
+          title="加粗"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => editor.chain().focus().toggleBold().run()}
+        >
+          <Bold size={15} />
+        </button>
+        <button
+          type="button"
+          className={`md-tool${editor.isActive("italic") ? " active" : ""}`}
+          title="斜体"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => editor.chain().focus().toggleItalic().run()}
+        >
+          <Italic size={15} />
+        </button>
+        <button
+          type="button"
+          className={`md-tool${editor.isActive("heading", { level: 1 }) ? " active" : ""}`}
+          title="一级标题"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+        >
+          <Heading1 size={15} />
+        </button>
+        <button
+          type="button"
+          className={`md-tool${editor.isActive("heading", { level: 2 }) ? " active" : ""}`}
+          title="二级标题"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+        >
+          <Heading2 size={15} />
+        </button>
+        <button
+          type="button"
+          className={`md-tool${editor.isActive("bulletList") ? " active" : ""}`}
+          title="无序列表"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => editor.chain().focus().toggleBulletList().run()}
+        >
+          <List size={15} />
+        </button>
+        <button
+          type="button"
+          className={`md-tool${editor.isActive("orderedList") ? " active" : ""}`}
+          title="有序列表"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => editor.chain().focus().toggleOrderedList().run()}
+        >
+          <ListOrdered size={15} />
+        </button>
+      </div>
+      <EditorContent editor={editor} />
+    </div>
+  );
+}
+
 function EditorField({
   label,
   hint,
@@ -1844,15 +1928,186 @@ function EditorField({
   );
 }
 
+function IconButton({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+  danger,
+  primary,
+  loading,
+  size = 16,
+}: {
+  icon: typeof Check;
+  label: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  primary?: boolean;
+  loading?: boolean;
+  size?: number;
+}) {
+  return (
+    <button
+      className={`icon-btn${danger ? " icon-danger" : ""}${primary ? " primary" : ""}`}
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+    >
+      {loading ? <LoaderCircle className="spin" size={size} /> : <Icon size={size} />}
+    </button>
+  );
+}
+
+function formatDue(d: string) {
+  const parts = d.split("-");
+  if (parts.length < 3) return d;
+  const [, m, day] = parts;
+  return `${Number(m)}月${Number(day)}日`;
+}
+
+function TaskRow({
+  task,
+  onToggle,
+  onSave,
+  onDelete,
+}: {
+  task: Task;
+  onToggle: (task: Task) => void;
+  onSave: (task: Task) => void;
+  onDelete: (task: Task) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(task.title);
+  const [due, setDue] = useState(task.dueDate ?? "");
+  const overdue =
+    !task.completed &&
+    task.dueDate != null &&
+    task.dueDate < new Date().toISOString().slice(0, 10);
+
+  const startEdit = () => {
+    setTitle(task.title);
+    setDue(task.dueDate ?? "");
+    setEditing(true);
+  };
+  const commit = () => {
+    const next = title.trim();
+    if (!next) {
+      setEditing(false);
+      return;
+    }
+    onSave({ ...task, title: next, dueDate: due || null });
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className={`task-row editing${task.completed ? " done" : ""}`}>
+        <input
+          className="task-edit-title"
+          autoFocus
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") setEditing(false);
+          }}
+        />
+        <input
+          className="task-edit-due"
+          type="date"
+          value={due}
+          onChange={(e) => setDue(e.target.value)}
+        />
+        <IconButton icon={Check} label="保存" onClick={commit} />
+        <IconButton icon={X} label="取消" onClick={() => setEditing(false)} />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`task-row${task.completed ? " done" : ""}`}>
+      <label className="task-check">
+        <input type="checkbox" checked={task.completed} onChange={() => onToggle(task)} />
+        <span className="checkmark">{task.completed && <Check size={13} />}</span>
+      </label>
+      <button className="task-title" onClick={startEdit} title="点击编辑">
+        {task.title}
+      </button>
+      {task.dueDate && (
+        <span className={`task-due${overdue ? " overdue" : ""}`} title={overdue ? "已逾期" : "截止日期"}>
+          <CalendarDays size={13} />
+          {formatDue(task.dueDate)}
+        </span>
+      )}
+      {task.sourceType && (
+        <small className="task-source">{task.sourceType === "meeting" ? "会议" : "笔记"}</small>
+      )}
+      <IconButton icon={Pencil} label="编辑" onClick={startEdit} />
+      <IconButton icon={Trash2} label="删除" danger onClick={() => onDelete(task)} />
+    </div>
+  );
+}
+
+function TaskComposer({
+  autoFocus,
+  onAdd,
+  onCancel,
+}: {
+  autoFocus?: boolean;
+  onAdd: (title: string, due: string) => void;
+  onCancel: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [due, setDue] = useState("");
+  const submit = () => {
+    const next = title.trim();
+    if (!next) return;
+    onAdd(next, due);
+    setTitle("");
+    setDue("");
+  };
+  return (
+    <div className="task-composer">
+      <input
+        className="task-edit-title"
+        placeholder="待办内容…"
+        value={title}
+        autoFocus={autoFocus}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") submit();
+          if (e.key === "Escape") onCancel();
+        }}
+      />
+      <input
+        className="task-edit-due"
+        type="date"
+        value={due}
+        title="截止日期"
+        onChange={(e) => setDue(e.target.value)}
+      />
+      <IconButton icon={Check} label="添加" primary onClick={submit} />
+      <IconButton icon={X} label="取消" onClick={onCancel} />
+    </div>
+  );
+}
+
 function Tasks({
   tasks,
   onAdd,
   onToggle,
+  onSave,
+  onDelete,
 }: {
   tasks: Task[];
-  onAdd: () => void;
+  onAdd: (title: string, due: string | null) => void;
   onToggle: (task: Task) => void;
+  onSave: (task: Task) => void;
+  onDelete: (task: Task) => void;
 }) {
+  const [composing, setComposing] = useState(false);
   const open = tasks.filter((task) => !task.completed);
   const done = tasks.filter((task) => task.completed);
   return (
@@ -1862,13 +2117,23 @@ function Tasks({
           <h2>专注下一步</h2>
           <p>智能纪要提取的行动项，会自动出现在这里。</p>
         </div>
-        <button className="primary-button" onClick={onAdd}>
+        <button className="primary-button" onClick={() => setComposing((v) => !v)}>
           <Plus size={16} />
           新建待办
         </button>
       </div>
-      <TaskGroup title="待完成" tasks={open} onToggle={onToggle} />
-      <TaskGroup title="已完成" tasks={done} onToggle={onToggle} />
+      {composing && (
+        <TaskComposer
+          autoFocus
+          onAdd={(title, due) => {
+            onAdd(title, due || null);
+            setComposing(false);
+          }}
+          onCancel={() => setComposing(false)}
+        />
+      )}
+      <TaskGroup title="待完成" tasks={open} onToggle={onToggle} onSave={onSave} onDelete={onDelete} />
+      <TaskGroup title="已完成" tasks={done} onToggle={onToggle} onSave={onSave} onDelete={onDelete} />
     </div>
   );
 }
@@ -1877,10 +2142,14 @@ function TaskGroup({
   title,
   tasks,
   onToggle,
+  onSave,
+  onDelete,
 }: {
   title: string;
   tasks: Task[];
   onToggle: (task: Task) => void;
+  onSave: (task: Task) => void;
+  onDelete: (task: Task) => void;
 }) {
   return (
     <section className="task-group">
@@ -1890,23 +2159,13 @@ function TaskGroup({
       </div>
       {tasks.length ? (
         tasks.map((task) => (
-          <label
-            className={`task-row ${task.completed ? "done" : ""}`}
+          <TaskRow
             key={task.id}
-          >
-            <input
-              type="checkbox"
-              checked={task.completed}
-              onChange={() => onToggle(task)}
-            />
-            <span className="checkmark">
-              {task.completed && <Check size={13} />}
-            </span>
-            <span>{task.title}</span>
-            {task.sourceType && (
-              <small>{task.sourceType === "meeting" ? "会议" : "笔记"}</small>
-            )}
-          </label>
+            task={task}
+            onToggle={onToggle}
+            onSave={onSave}
+            onDelete={onDelete}
+          />
         ))
       ) : (
         <Empty

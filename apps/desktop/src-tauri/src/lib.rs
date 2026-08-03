@@ -850,6 +850,13 @@ fn upsert_task(state: State<'_, AppState>, task: Task) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn delete_task(state: State<'_, AppState>, task_id: String) -> Result<(), String> {
+    let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
+    connection.execute("DELETE FROM tasks WHERE id = ?1", params![task_id]).map_err(app_error)?;
+    Ok(())
+}
+
 fn recording_file(recordings_dir: &Path, meeting_id: &str) -> Result<PathBuf, String> {
     // meeting_id 来自前端，只允许安全字符，防止路径穿越
     if meeting_id.is_empty() || !meeting_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
@@ -1102,7 +1109,7 @@ pub fn run() {
             download_local_asr_model, install_speaker_engine_command,
             save_ai_settings, clear_ai_api_key,
             get_asr_engine_settings, save_asr_engine_settings, clear_cloud_asr_key,
-            create_meeting, save_meeting, upsert_task,
+            create_meeting, save_meeting, upsert_task, delete_task,
             begin_recording, append_recording_chunk, finalize_recording, get_recording_path,
             import_meeting_audio, transcribe_meeting,
             transcribe_meeting_with_speakers,
