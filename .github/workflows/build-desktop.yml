@@ -132,9 +132,13 @@ jobs:
           Invoke-WebRequest -Uri $sigAsset.browser_download_url -OutFile $tmp
           $signature = (Get-Content $tmp -Raw).Trim()
 
-          # Use the REAL uploaded asset name (URL-encoded for non-ASCII safety)
+          # Use the REAL uploaded asset name (URL-encoded for non-ASCII safety),
+          # and route the binary download through a GitHub mirror so the app can
+          # fetch it from mainland China (release-assets.githubusercontent.com is
+          # often blocked there; the Tauri/reqwest stack does not use system proxy).
           $encodedExe = [System.Uri]::EscapeDataString($exeAsset.name)
-          $exeUrl = "https://github.com/fagnxia113/anarlog/releases/download/$tag/$encodedExe"
+          $mirror = "https://ghproxy.net"
+          $exeUrl = "$mirror/https://github.com/fagnxia113/anarlog/releases/download/$tag/$encodedExe"
           $manifest = [ordered]@{
             version   = $version
             notes     = "自动更新版本"
