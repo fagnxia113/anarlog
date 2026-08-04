@@ -1837,13 +1837,22 @@ function MarkdownEditor({
 
   useEffect(() => {
     if (!editor) return;
-    // Persisted notes/minutes are stored as Markdown strings. TipTap's
-    // setContent expects HTML, so parse via tiptap-markdown's parser first —
-    // otherwise "# 标题" / "**加粗**" render as literal characters.
+    // Stored content may be Markdown (user notes) OR HTML (AI-generated
+    // minutes — some models ignore the "use Markdown" instruction and emit
+    // <h2>/<p>/<strong> tags). TipTap's setContent accepts HTML natively,
+    // while tiptap-markdown's parser only understands Markdown. So feed HTML
+    // through verbatim and parse Markdown; otherwise tags render literally.
     const parser = (editor.storage as any).markdown?.parser;
-    const toContent = (md: string) => (parser ? parser.parse(md || "") : md || "");
+    const looksLikeHtml = /<\s*(h1|h2|h3|h4|h5|h6|p|ul|ol|li|strong|em|table|thead|tbody|tr|td|th|blockquote|br|div|span|hr)\b[^>]*>/i.test(
+      value
+    );
+    const toContent = (input: string) => {
+      if (!input) return "";
+      if (looksLikeHtml) return input; // already HTML -> render directly
+      return parser ? parser.parse(input) : input;
+    };
     if (!didInit.current) {
-      // First time the editor is ready: guarantee the stored Markdown is
+      // First time the editor is ready: guarantee the stored content is
       // rendered as formatted HTML (defends against any init-parse gap).
       didInit.current = true;
       lastEmitted.current = value;

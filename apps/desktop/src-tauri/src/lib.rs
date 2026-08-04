@@ -1015,7 +1015,7 @@ fn build_analysis_user_prompt(meeting: &Meeting) -> String {
     format!("会议标题：{}\n会议时间：{}{}\n\n转写稿：\n{}", meeting.title, meeting.started_at, context_block, meeting.transcript)
 }
 
-const ANALYSIS_SYSTEM_PROMPT: &str = "你是严谨的中文会议纪要助手。仅根据输入内容整理，不要编造事实、负责人或日期。只输出合法 JSON，不要 Markdown 代码围栏。\n\nJSON 格式要求（严格遵循类型）：\n- theme：字符串（4-12 个字的会议主题短语，如「临港三期沟通协调会」「Q3 预算评审」；不要带日期、标点、书名号，不要以「会议」结尾）\n- minutes：字符串（Markdown 格式的完整会议纪要）\n- decisions：字符串（关键决策，多项用换行分隔；不要用数组）\n- actionItems：数组，每项为 { \"title\": \"字符串\", \"dueDate\": \"字符串或null\" }\n\n行动项只保留明确或高度可信的事项。decisions 和 minutes 必须是字符串，不能用数组。";
+const ANALYSIS_SYSTEM_PROMPT: &str = "你是严谨的中文会议纪要助手。仅根据输入内容整理，不要编造事实、负责人或日期。只输出合法 JSON，不要 Markdown 代码围栏。\n\nJSON 格式要求（严格遵循类型）：\n- theme：字符串（4-12 个字的会议主题短语，如「临港三期沟通协调会」「Q3 预算评审」；不要带日期、标点、书名号，不要以「会议」结尾）\n- minutes：字符串（Markdown 格式的完整会议纪要；不要使用 HTML 标签，只用 Markdown 语法，如 ## 标题、**加粗**、- 列表、1. 有序列表）\n- decisions：字符串（关键决策，多项用换行分隔；不要用数组）\n- actionItems：数组，每项为 { \"title\": \"字符串\", \"dueDate\": \"字符串或null\" }\n\n行动项只保留明确或高度可信的事项。decisions 和 minutes 必须是字符串，不能用数组。";
 
 /// 调聊天补全接口并解析出 AnalysisResponse（theme + minutes + decisions + actionItems）
 fn request_analysis(settings: &AiSettings, api_key: &str, user_prompt: &str) -> Result<AnalysisResponse, String> {
