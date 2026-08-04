@@ -105,27 +105,35 @@ jobs:
           args: "--ci --bundles nsis"
 
       # tauri-action does not reliably emit latest.json for non-ASCII installer
-      # names, so we generate it explicitly. The updater endpoint points at
-      # /releases/latest/download/latest.json and needs this JSON manifest.
-      # The .sig was produced locally by tauri-action's build step, so we read
-      # it from disk (no network round-trip) to avoid 404 / rate-limit flakiness
-      # during asset propagation.
+      # names, AND it sanitizes the uploaded asset filename (the "知记" productName
+      # prefix is dropped - the real asset is "_1.2.x_x64-setup.exe", not
+      # "知记_1.2.x_x64-setup.exe"). So we must NOT hardcode the installer name.
+      # Instead we read the ACTUAL asset names from the GitHub release API and
+      # build the manifest from those - robust to whatever tauri-action names
+      # the file. The updater endpoint points at /releases/latest/download/latest.json.
       - name: Generate and upload latest.json
         if: success() && startsWith(github.ref, 'refs/tags/')
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "${{ github.ref_name }}"
           $version = $tag.TrimStart('v')
-          $sigName = "知记_${version}_x64-setup.exe.sig"
-          $exeName = "知记_${version}_x64-setup.exe"
+          $api = "https://api.github.com/repos/fagnxia113/anarlog/releases/tags/$tag"
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json" }
+          $release = Invoke-RestMethod -Uri $api -Headers $headers
+          $exeAsset = $release.assets | Where-Object { $_.name -like '*_x64-setup.exe' } | Select-Object -First 1
+          $sigAsset = $release.assets | Where-Object { $_.name -like '*_x64-setup.exe.sig' } | Select-Object -First 1
+          if (-not $exeAsset) { throw "Installer asset not found in release $tag" }
+          if (-not $sigAsset) { throw "Signature asset not found in release $tag" }
 
-          # Locate the local .sig artifact left by the build step
-          $sigFile = Get-ChildItem -Path . -Recurse -Filter $sigName | Select-Object -First 1
-          if (-not $sigFile) { throw "Local .sig artifact not found: $sigName" }
-          $signature = (Get-Content $sigFile.FullName -Raw).Trim()
+          # Download the minisign .sig verbatim and embed its full content
+          $tmp = Join-Path $env:RUNNER_TEMP "zhiji-latest.sig"
+          Invoke-WebRequest -Uri $sigAsset.browser_download_url -OutFile $tmp
+          $signature = (Get-Content $tmp -Raw).Trim()
 
-          # Build the updater manifest
-          $encodedExe = [System.Uri]::EscapeDataString($exeName)
+          # Use the REAL uploaded asset name (URL-encoded for non-ASCII safety)
+          $encodedExe = [System.Uri]::EscapeDataString($exeAsset.name)
           $exeUrl = "https://github.com/fagnxia113/anarlog/releases/download/$tag/$encodedExe"
           $manifest = [ordered]@{
             version   = $version
@@ -141,5 +149,3 @@ jobs:
 
           Set-Content -Path "latest.json" -Value $manifest -Encoding utf8NoBOM
           gh release upload $tag latest.json --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
