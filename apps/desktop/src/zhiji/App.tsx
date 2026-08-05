@@ -1332,10 +1332,12 @@ function Meetings({
                   <h3>我的笔记</h3>
                   <small>开会时随手记，一直显示在这里，不会被智能纪要覆盖</small>
                 </div>
-                <MarkdownEditor
+                <EditorField
+                  label="我的笔记"
+                  hint="开会时随手记，一直显示在这里，不会被智能纪要覆盖（纯文本，原样保存）"
                   value={meeting.notes}
-                  onChange={(md) => onChange({ ...meeting, notes: md })}
-                  placeholder="随时记下你的观察与想法（支持 Markdown：# 标题、**加粗**、- 列表）"
+                  onChange={(notes) => onChange({ ...meeting, notes })}
+                  placeholder="随时记下你的观察与想法"
                 />
               </section>
               <section className="meeting-tabs">
@@ -1379,8 +1381,10 @@ function Meetings({
                               <small>智能分析会生成主题、关键讨论、结论、风险与下一步</small>
                             </div>
                           </div>
-                          <MarkdownEditor
-                            value={meeting.minutes}
+                          <EditorField
+                            label="智能纪要"
+                            hint="AI 基于转写稿生成的结构化纪要（纯文本，原样保存）"
+                            value={stripHtml(meeting.minutes)}
                             onChange={(minutes) => onChange({ ...meeting, minutes })}
                             placeholder="生成纪要后显示在这里"
                           />
@@ -1802,6 +1806,9 @@ function StatusDot({ status }: { status: string }) {
   return <span className={`status-dot ${cls}`} title={status} />;
 }
 
+// 轻量去除 HTML 标签：智能纪要偶尔会带 <h2>/<p> 等标签，纯文本编辑器下直接剥掉，
+// 避免 <h2>会议纪要</h2> 这类字面显示。不做任何渲染，符合「不硬支持 md/html」的取向。
+const stripHtml = (s: string): string => s.replace(/<[^>]+>/g, "");
 
 function MarkdownEditor({
   value,
