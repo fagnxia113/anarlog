@@ -1,6 +1,6 @@
 [package]
 name = "zhiji-desktop"
-version = "1.2.11"
+version = "1.2.12"
 authors = ["ZhiJi"]
 edition = "2024"
 description = "知记 Windows 个人会议纪要与笔记本"

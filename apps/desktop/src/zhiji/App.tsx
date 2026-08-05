@@ -21,12 +21,6 @@ import {
   Pencil,
   CalendarDays,
   Search,
-  Bold,
-  Italic,
-  Heading1,
-  Heading2,
-  List,
-  ListOrdered,
   Settings,
   Sparkles,
   Square,
@@ -37,10 +31,6 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import { Markdown } from "tiptap-markdown";
 
 type Meeting = {
   id: string;
@@ -1810,132 +1800,6 @@ function StatusDot({ status }: { status: string }) {
 // 避免 <h2>会议纪要</h2> 这类字面显示。不做任何渲染，符合「不硬支持 md/html」的取向。
 const stripHtml = (s: string): string => s.replace(/<[^>]+>/g, "");
 
-function MarkdownEditor({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  onChange: (markdown: string) => void;
-  placeholder?: string;
-}) {
-  const lastEmitted = useRef(value);
-  const didInit = useRef(false);
-  const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Placeholder.configure({ placeholder: placeholder ?? "开始记录…" }),
-      Markdown.configure({
-        html: false,
-        transformPastedText: true,
-        transformCopiedText: true,
-      }),
-    ],
-    content: value,
-    onUpdate: ({ editor }) => {
-      const md = editor.storage.markdown.getMarkdown();
-      lastEmitted.current = md;
-      onChange(md);
-    },
-    editorProps: {
-      attributes: { class: "md-editor-content" },
-    },
-  });
-
-  useEffect(() => {
-    if (!editor) return;
-    // Stored content may be Markdown (user notes) OR HTML (AI-generated
-    // minutes — some models ignore the "use Markdown" instruction and emit
-    // <h2>/<p>/<strong> tags). TipTap's setContent accepts HTML natively,
-    // while tiptap-markdown's parser only understands Markdown. So feed HTML
-    // through verbatim and parse Markdown; otherwise tags render literally.
-    const parser = (editor.storage as any).markdown?.parser;
-    const looksLikeHtml = /<\s*(h1|h2|h3|h4|h5|h6|p|ul|ol|li|strong|em|table|thead|tbody|tr|td|th|blockquote|br|div|span|hr)\b[^>]*>/i.test(
-      value
-    );
-    const toContent = (input: string) => {
-      if (!input) return "";
-      if (looksLikeHtml) return input; // already HTML -> render directly
-      return parser ? parser.parse(input) : input;
-    };
-    if (!didInit.current) {
-      // First time the editor is ready: guarantee the stored content is
-      // rendered as formatted HTML (defends against any init-parse gap).
-      didInit.current = true;
-      lastEmitted.current = value;
-      editor.commands.setContent(toContent(value), false);
-      return;
-    }
-    if (value !== lastEmitted.current) {
-      lastEmitted.current = value;
-      editor.commands.setContent(toContent(value), false);
-    }
-  }, [value, editor]);
-
-  if (!editor) return null;
-
-  return (
-    <div className="md-editor">
-      <div className="md-toolbar">
-        <button
-          type="button"
-          className={`md-tool${editor.isActive("bold") ? " active" : ""}`}
-          title="加粗"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => editor.chain().focus().toggleBold().run()}
-        >
-          <Bold size={15} />
-        </button>
-        <button
-          type="button"
-          className={`md-tool${editor.isActive("italic") ? " active" : ""}`}
-          title="斜体"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => editor.chain().focus().toggleItalic().run()}
-        >
-          <Italic size={15} />
-        </button>
-        <button
-          type="button"
-          className={`md-tool${editor.isActive("heading", { level: 1 }) ? " active" : ""}`}
-          title="一级标题"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-        >
-          <Heading1 size={15} />
-        </button>
-        <button
-          type="button"
-          className={`md-tool${editor.isActive("heading", { level: 2 }) ? " active" : ""}`}
-          title="二级标题"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-        >
-          <Heading2 size={15} />
-        </button>
-        <button
-          type="button"
-          className={`md-tool${editor.isActive("bulletList") ? " active" : ""}`}
-          title="无序列表"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
-        >
-          <List size={15} />
-        </button>
-        <button
-          type="button"
-          className={`md-tool${editor.isActive("orderedList") ? " active" : ""}`}
-          title="有序列表"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-        >
-          <ListOrdered size={15} />
-        </button>
-      </div>
-      <EditorContent editor={editor} />
-    </div>
-  );
-}
 
 function EditorField({
   label,
