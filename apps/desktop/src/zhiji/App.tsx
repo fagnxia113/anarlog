@@ -31,6 +31,8 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 
 type Meeting = {
   id: string;
@@ -625,7 +627,8 @@ export function App() {
           : "本地语音转写完成，已写入原始记录",
       );
     } catch (error) {
-      notify(`转写失败：${String(error)}`);
+      const msg = String(error);
+      notify(msg.includes("已取消") ? "已取消转写" : `转写失败：${msg}`);
     } finally {
       setProcessing(null);
     }
@@ -693,6 +696,14 @@ export function App() {
     }
   };
 
+  const cancelProcessing = async () => {
+    try {
+      await invoke("cancel_processing");
+    } catch {
+      /* 子进程可能已结束，忽略 */
+    }
+  };
+
   const transcribeWithSpeakers = async () => {
     if (!selectedMeeting) return;
     if (asrEngine.provider === "cloud") {
@@ -711,7 +722,8 @@ export function App() {
       await reload();
       notify("已完成本地转写与说话人区分，可继续生成智能纪要。");
     } catch (error) {
-      notify(`说话人分离失败：${String(error)}`);
+      const msg = String(error);
+      notify(msg.includes("已取消") ? "已取消转写" : `说话人分离失败：${msg}`);
     } finally {
       setProcessing(null);
     }
@@ -933,6 +945,9 @@ export function App() {
           onInstall={() => void installUpdate()}
           onDismiss={() => setShowUpdateModal(false)}
         />
+      )}
+      {processing && (
+        <ProgressModal stage={processing} onCancel={cancelProcessing} />
       )}
     </div>
   );
@@ -1378,9 +1393,9 @@ function Meetings({
                   </button>
                 </div>
                 {meeting.minutes.trim() || aiConfigured ? (
-                  <EditorField
+                  <MarkdownField
                     label="智能纪要"
-                    hint="AI 基于转写稿生成的结构化纪要（纯文本，原样保存）"
+                    hint="AI 基于转写稿生成的结构化纪要（Markdown，预览时渲染格式）"
                     value={stripHtml(meeting.minutes)}
                     onChange={(minutes) => onChange({ ...meeting, minutes })}
                     placeholder="生成纪要后显示在这里"
@@ -1393,7 +1408,7 @@ function Meetings({
                 <details className="pane-details" open>
                   <summary>决策与待办（{meetingTasks.length}）</summary>
                   <div className="meeting-editor">
-                    <EditorField
+                    <MarkdownField
                       label="决策与共识"
                       hint="只保留明确决定；不确定项会标记待确认"
                       value={meeting.decisions}
@@ -1806,6 +1821,71 @@ function EditorField({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
       />
+    </div>
+  );
+}
+
+function renderMarkdown(source: string): string {
+  if (!source.trim()) return "";
+  // 仅渲染 Markdown；DOMPurify 兜底去除任何残留的 <script>/危险标签
+  const raw = marked.parse(source, { async: false, gfm: true, breaks: true }) as string;
+  return DOMPurify.sanitize(raw);
+}
+
+function MarkdownField({
+  label,
+  hint,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  hint: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  // 默认预览：让 AI 生成的加粗/列表/标题直接可见（用户之前抱怨裸字符）
+  const [mode, setMode] = useState<"preview" | "edit">("preview");
+  const html = useMemo(() => renderMarkdown(value), [value]);
+  return (
+    <div className="editor-field markdown-field">
+      <div className="editor-field-head">
+        <div>
+          <h3>{label}</h3>
+          <small>{hint}</small>
+        </div>
+        <div className="md-toggle" role="group" aria-label="编辑或预览">
+          <button
+            type="button"
+            className={mode === "edit" ? "active" : ""}
+            onClick={() => setMode("edit")}
+          >
+            编辑
+          </button>
+          <button
+            type="button"
+            className={mode === "preview" ? "active" : ""}
+            onClick={() => setMode("preview")}
+          >
+            预览
+          </button>
+        </div>
+      </div>
+      {mode === "edit" ? (
+        <textarea
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+        />
+      ) : value.trim() ? (
+        <div
+          className="markdown-body"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      ) : (
+        <div className="tab-panel-empty">{placeholder}</div>
+      )}
     </div>
   );
 }
@@ -2464,6 +2544,49 @@ function UpdateModal({
           <small className="runtime-warning">
             更新失败，请稍后重试，或去 GitHub 下载安装包。
           </small>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const PROCESSING_LABELS: Record<Exclude<Processing, null>, string> = {
+  downloading: "正在下载本地语音模型…",
+  transcribing: "正在本地语音转写…",
+  analyzing: "AI 正在生成智能纪要…",
+  renaming: "AI 正在重命名会议…",
+  installingSpeaker: "正在安装说话人分离引擎…",
+  speakerTranscribing: "正在转写并区分说话人…",
+  importing: "正在导入录音…",
+  deleting: "正在删除会议…",
+  autoTranscribing: "录音已保存，正在本地转写…",
+};
+
+function ProgressModal({
+  stage,
+  onCancel,
+}: {
+  stage: Exclude<Processing, null>;
+  onCancel: () => void;
+}) {
+  // 仅本地语音转写（含录音后自动转写）可中途取消：后端会杀掉转写子进程
+  const cancelable = stage === "transcribing" || stage === "autoTranscribing";
+  return (
+    <div className="modal-overlay">
+      <div className="modal progress-modal" role="dialog" aria-modal="true" aria-label="处理中">
+        <div className="progress-modal-body">
+          <LoaderCircle size={26} className="spin" />
+          <div>
+            <h3>{PROCESSING_LABELS[stage]}</h3>
+            <p>处理期间请勿关闭窗口。</p>
+          </div>
+        </div>
+        {cancelable && (
+          <div className="modal-actions">
+            <button className="secondary-button" onClick={onCancel}>
+              取消
+            </button>
+          </div>
         )}
       </div>
     </div>

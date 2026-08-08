@@ -20,7 +20,9 @@
     "@tiptap/extension-placeholder": "^2",
     "@tiptap/react": "^2",
     "@tiptap/starter-kit": "^2",
+    "dompurify": "^3.2.4",
     "lucide-react": "^0.544.0",
+    "marked": "^12.0.2",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "tiptap-markdown": "^0.8"

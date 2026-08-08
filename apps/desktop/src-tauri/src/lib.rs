@@ -1,4 +1,4 @@
-use std::{error::Error, fs, io::{self, Read, Write}, path::{Path, PathBuf}, process::Command, sync::Mutex};
+use std::{error::Error, fs, io::{self, Read, Write}, path::{Path, PathBuf}, process::{Child, Command}, sync::{Arc, Mutex}, sync::atomic::{AtomicBool, Ordering}};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::Local;
@@ -49,6 +49,8 @@ struct AppState {
     vcrt_dir: PathBuf,
     speaker_engine_dir: PathBuf,
     speaker_models_dir: PathBuf,
+    cancel_flag: Arc<AtomicBool>,
+    cancel_child: Arc<Mutex<Option<Child>>>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -263,7 +265,7 @@ fn open_state(app: &AppHandle) -> Result<AppState, Box<dyn Error>> {
     ensure_column(&connection, "meetings", "notes", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&connection, "tasks", "origin", "TEXT NOT NULL DEFAULT 'manual'")?;
     clean_stored_transcripts(&connection)?;
-    Ok(AppState { connection: Mutex::new(connection), models_dir, recordings_dir, runtime_dir, ffmpeg_dir, vcrt_dir, speaker_engine_dir, speaker_models_dir })
+    Ok(AppState { connection: Mutex::new(connection), models_dir, recordings_dir, runtime_dir, ffmpeg_dir, vcrt_dir, speaker_engine_dir, speaker_models_dir, cancel_flag: Arc::new(AtomicBool::new(false)), cancel_child: Arc::new(Mutex::new(None)) })
 }
 
 fn ensure_column(connection: &Connection, table: &str, column: &str, definition: &str) -> Result<(), Box<dyn Error>> {
@@ -548,7 +550,16 @@ fn remove_managed_recording(recordings_dir: &Path, audio_path: &str) {
     if canonical_path.starts_with(root) { let _ = fs::remove_file(canonical_path); }
 }
 
-fn run_local_asr(runtime_dir: PathBuf, ffmpeg_dir: PathBuf, models_dir: PathBuf, vcrt_dir: PathBuf, audio_path: String) -> Result<String, String> {
+fn run_local_asr(
+    runtime_dir: PathBuf,
+    ffmpeg_dir: PathBuf,
+    models_dir: PathBuf,
+    vcrt_dir: PathBuf,
+    audio_path: String,
+    cancel_flag: Arc<AtomicBool>,
+    cancel_child: Arc<Mutex<Option<Child>>>,
+) -> Result<String, String> {
+    if cancel_flag.load(Ordering::SeqCst) { return Err("已取消转写".to_string()); }
     let executable = runtime_dir.join(SENSEVOICE_EXECUTABLE);
     if !executable.is_file() { return Err("本地语音引擎未随安装包找到，请重新安装知记".to_string()); }
     let model = models_dir.join(SENSEVOICE_MODEL_NAME);
@@ -565,9 +576,19 @@ fn run_local_asr(runtime_dir: PathBuf, ffmpeg_dir: PathBuf, models_dir: PathBuf,
     command.env("PATH", std::env::join_paths(paths).map_err(app_error)?);
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
-    let result = command.output().map_err(app_error);
+    // 用 spawn + 保留子进程句柄，支持转写中取消（kill 子进程）
+    let mut child = command.spawn().map_err(app_error)?;
+    if let Ok(mut slot) = cancel_child.lock() { *slot = Some(child); }
+    let output = {
+        let taken = cancel_child.lock().map_err(|_| "进程锁异常".to_string())?.take();
+        match taken {
+            Some(c) => c.wait_with_output().map_err(app_error)?,
+            None => return Err("已取消转写".to_string()),
+        }
+    };
+    if let Ok(mut slot) = cancel_child.lock() { *slot = None; }
     if remove_wav { let _ = fs::remove_file(&wav_path); }
-    let output = result?;
+    if cancel_flag.load(Ordering::SeqCst) { return Err("已取消转写".to_string()); }
     if !output.status.success() { return Err(format!("本地语音引擎运行失败：{}", String::from_utf8_lossy(&output.stderr).trim())); }
     let transcript = clean_local_transcript(&String::from_utf8_lossy(&output.stdout));
     if transcript.is_empty() { return Err("本地语音引擎没有返回可用的转写文本".to_string()); }
@@ -953,6 +974,8 @@ async fn transcribe_audio(state: &State<'_, AppState>, meeting: &Meeting) -> Res
         let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
         asr_engine_settings(&connection)?
     };
+    // 新一轮转写开始，清除上一次的取消标志
+    state.cancel_flag.store(false, Ordering::SeqCst);
     if engine.provider == "cloud" {
         let api_key = cloud_asr_key()?.get_password().map_err(|_| "请先在设置中保存云端转写 API 密钥".to_string())?;
         if api_key.trim().is_empty() { return Err("请先在设置中保存云端转写 API 密钥".to_string()); }
@@ -964,7 +987,9 @@ async fn transcribe_audio(state: &State<'_, AppState>, meeting: &Meeting) -> Res
         let ffmpeg_dir = state.ffmpeg_dir.clone();
         let models_dir = state.models_dir.clone();
         let vcrt_dir = state.vcrt_dir.clone();
-        tauri::async_runtime::spawn_blocking(move || run_local_asr(runtime_dir, ffmpeg_dir, models_dir, vcrt_dir, audio_path))
+        let cancel_flag = state.cancel_flag.clone();
+        let cancel_child = state.cancel_child.clone();
+        tauri::async_runtime::spawn_blocking(move || run_local_asr(runtime_dir, ffmpeg_dir, models_dir, vcrt_dir, audio_path, cancel_flag, cancel_child))
             .await.map_err(|error| format!("本地转写任务中断：{error}"))?
     }
 }
@@ -1003,6 +1028,18 @@ async fn transcribe_meeting_with_speakers(state: State<'_, AppState>, meeting_id
     let connection = state.connection.lock().map_err(|_| "数据库正被占用，请重试".to_string())?;
     connection.execute("UPDATE meetings SET transcript = ?2, speaker_segments = ?3, status = ?4, updated_at = ?5 WHERE id = ?1", params![meeting_id, result.transcript, segments, "已区分发言人", now()]).map_err(app_error)?;
     meeting_by_id(&connection, &meeting.id)
+}
+
+/// 取消当前正在进行的本地转写：置取消标志并杀掉本地语音引擎子进程
+#[tauri::command]
+async fn cancel_processing(state: State<'_, AppState>) -> Result<(), String> {
+    state.cancel_flag.store(true, Ordering::SeqCst);
+    if let Ok(mut slot) = state.cancel_child.lock() {
+        if let Some(mut child) = slot.take() {
+            let _ = child.kill();
+        }
+    }
+    Ok(())
 }
 
 /// 拼智能纪要的 user prompt：有会前背景时带上，让 AI 结合背景理解转写稿
@@ -1112,7 +1149,7 @@ pub fn run() {
             create_meeting, save_meeting, upsert_task, delete_task,
             begin_recording, append_recording_chunk, finalize_recording, get_recording_path,
             import_meeting_audio, transcribe_meeting,
-            transcribe_meeting_with_speakers,
+            transcribe_meeting_with_speakers, cancel_processing,
             analyze_meeting, rename_meeting, delete_meeting
         ])
         .run(tauri::generate_context!())
