@@ -714,9 +714,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .context-input::placeholder { color: var(--text-disabled); }
 
 /* —— 会议详情双栏：我的笔记 + AI 产出 —— */
-.meeting-dual {
+.meeting-triple {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1.2fr);
   gap: var(--space-4);
   margin-top: var(--space-4);
   align-items: start;
@@ -732,6 +732,65 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   position: sticky;
   top: 0;
 }
+/* 三栏：中=原文转写 / 右=智能纪要 */
+.transcript-pane,
+.minutes-pane {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+  position: sticky;
+  top: 0;
+}
+.transcript-pane .editor-field textarea,
+.minutes-pane .editor-field textarea {
+  min-height: 380px;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.pane-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+}
+.pane-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-strong); }
+.pane-head small { display: block; margin-top: 4px; color: var(--text-faint); font-size: 11px; line-height: 1.5; }
+
+/* 栏内折叠区块（说话人时间线 / 决策待办） */
+.pane-details { border-top: 1px solid var(--border-subtle); background: var(--bg-subtle); }
+.pane-details > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: var(--space-3) var(--space-5);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-default);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  user-select: none;
+}
+.pane-details > summary::-webkit-details-marker { display: none; }
+.pane-details > summary::before {
+  content: "\25B8";
+  font-size: 11px;
+  color: var(--text-muted);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.pane-details[open] > summary::before { transform: rotate(90deg); }
+.pane-details > .meeting-editor {
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  border-top: 1px solid var(--border-subtle);
+}
+
 .my-notes-head {
   padding: var(--space-4) var(--space-5) var(--space-3);
   border-bottom: 1px solid var(--border-subtle);

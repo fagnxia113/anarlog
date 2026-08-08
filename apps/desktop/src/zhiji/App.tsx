@@ -1098,10 +1098,6 @@ function Meetings({
   const [seekRequest, setSeekRequest] = useState<{ time: number; nonce: number } | null>(null);
   const [currentMs, setCurrentMs] = useState(-1);
   const [taskComposing, setTaskComposing] = useState(false);
-  // 会议详情页 Tab 状态（保留在父级，避免切 Tab 丢状态；AudioPlayer 在 sticky 顶部不进 Tab）
-  const [activeTab, setActiveTab] = useState<"notes" | "minutes" | "transcript" | "speakers" | "tasks">(
-    "minutes",
-  );
   // 会前背景条：默认收起；有内容时收起并显示首行预览，空时展开引导填写
   const [contextOpen, setContextOpen] = useState<boolean | null>(null);
   const contextExpanded = contextOpen ?? !meeting?.context?.trim();
@@ -1316,7 +1312,8 @@ function Meetings({
               />
             </div>
             {/* 双栏：左「我的笔记」常驻（开会时随手记，AI 不会覆盖）；右 AI 产出 Tabs */}
-            <div className="meeting-dual">
+            <div className="meeting-triple">
+              {/* 左：我的笔记（常驻） */}
               <section className="my-notes-pane">
                 <div className="my-notes-head">
                   <h3>我的笔记</h3>
@@ -1330,136 +1327,107 @@ function Meetings({
                   placeholder="随时记下你的观察与想法"
                 />
               </section>
-              <section className="meeting-tabs">
-                <div className="tab-bar">
-                  <button
-                    className={`tab-item ${activeTab === "minutes" ? "active" : ""}`}
-                    onClick={() => setActiveTab("minutes")}
-                  >
-                    智能纪要
-                  </button>
-                  <button
-                    className={`tab-item ${activeTab === "transcript" ? "active" : ""}`}
-                    onClick={() => setActiveTab("transcript")}
-                  >
-                    原文转写
-                    <span className="count-pill">{meeting.transcript.length}</span>
-                  </button>
-                  <button
-                    className={`tab-item ${activeTab === "speakers" ? "active" : ""}`}
-                    onClick={() => setActiveTab("speakers")}
-                  >
-                    说话人时间线
-                    <span className="count-pill">{speakerSegments.length}</span>
-                  </button>
-                  <button
-                    className={`tab-item ${activeTab === "tasks" ? "active" : ""}`}
-                    onClick={() => setActiveTab("tasks")}
-                  >
-                    决策与待办
-                    <span className="count-pill">{meetingTasks.length}</span>
-                  </button>
+
+              {/* 中：原文转写（独立主栏） */}
+              <section className="transcript-pane">
+                <div className="pane-head">
+                  <div>
+                    <h3>原文转写</h3>
+                    <small>本地语音转写会写入这里；也可以粘贴文字记录</small>
+                  </div>
+                  <span className="count-pill">{meeting.transcript.length}</span>
                 </div>
-                <div className="tab-panel" key={activeTab}>
-                  {activeTab === "minutes" && (
-                    <div className="tab-panel-doc">
-                      {meeting.minutes.trim() || aiConfigured ? (
-                        <>
-                          <div className="editor-field">
-                            <div>
-                              <h3>会议纪要</h3>
-                              <small>智能分析会生成主题、关键讨论、结论、风险与下一步</small>
-                            </div>
-                          </div>
-                          <EditorField
-                            label="智能纪要"
-                            hint="AI 基于转写稿生成的结构化纪要（纯文本，原样保存）"
-                            value={stripHtml(meeting.minutes)}
-                            onChange={(minutes) => onChange({ ...meeting, minutes })}
-                            placeholder="生成纪要后显示在这里"
-                          />
-                        </>
+                <EditorField
+                  label="原始记录 / 转写稿"
+                  hint="本地语音转写会写入这里；也可以粘贴文字记录"
+                  value={meeting.transcript}
+                  onChange={(transcript) => onChange({ ...meeting, transcript })}
+                  placeholder="转写完成后显示在这里"
+                />
+                {speakerSegments.length > 0 && (
+                  <details className="pane-details">
+                    <summary>说话人时间线（{speakerSegments.length}）</summary>
+                    <SpeakerTimeline
+                      segments={meeting.speakerSegments}
+                      currentMs={currentMs}
+                      onSeek={(ms) => setSeekRequest({ time: ms / 1000, nonce: Date.now() })}
+                    />
+                  </details>
+                )}
+              </section>
+
+              {/* 右：智能纪要 + 决策待办 */}
+              <section className="minutes-pane">
+                <div className="pane-head">
+                  <div>
+                    <h3>智能纪要</h3>
+                    <small>AI 基于转写稿生成的结构化纪要（纯文本，原样保存）</small>
+                  </div>
+                </div>
+                {meeting.minutes.trim() || aiConfigured ? (
+                  <EditorField
+                    label="智能纪要"
+                    hint="AI 基于转写稿生成的结构化纪要（纯文本，原样保存）"
+                    value={stripHtml(meeting.minutes)}
+                    onChange={(minutes) => onChange({ ...meeting, minutes })}
+                    placeholder="生成纪要后显示在这里"
+                  />
+                ) : (
+                  <div className="tab-panel-empty">
+                    点击上方「生成智能纪要」，AI 会基于转写稿自动生成结构化纪要。
+                  </div>
+                )}
+                <details className="pane-details" open>
+                  <summary>决策与待办（{meetingTasks.length}）</summary>
+                  <div className="meeting-editor">
+                    <EditorField
+                      label="决策与共识"
+                      hint="只保留明确决定；不确定项会标记待确认"
+                      value={meeting.decisions}
+                      onChange={(decisions) => onChange({ ...meeting, decisions })}
+                      placeholder="例如：周五前交付初稿"
+                    />
+                    <div>
+                      <div className="section-heading">
+                        <h3>本会议待办</h3>
+                        <button
+                          className="icon-btn"
+                          title="添加待办"
+                          onClick={() => setTaskComposing((v) => !v)}
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                      {taskComposing && (
+                        <TaskComposer
+                          autoFocus
+                          onAdd={(title, due) => {
+                            onTask(title, due);
+                            setTaskComposing(false);
+                          }}
+                          onCancel={() => setTaskComposing(false)}
+                        />
+                      )}
+                      {meetingTasks.length > 0 ? (
+                        <section className="task-group">
+                          {meetingTasks.map((task) => (
+                            <TaskRow
+                              key={task.id}
+                              task={task}
+                              onToggle={onToggleTask}
+                              onSave={onSaveTask}
+                              onDelete={onDeleteTask}
+                            />
+                          ))}
+                        </section>
                       ) : (
                         <div className="tab-panel-empty">
-                          点击上方「生成智能纪要」，AI 会基于转写稿自动生成结构化纪要。
+                          智能纪要生成后会自动提取行动项到这里。也可以手动添加。
                         </div>
                       )}
                     </div>
-                  )}
-                  {activeTab === "transcript" && (
-                    <EditorField
-                      label="原始记录 / 转写稿"
-                      hint="本地语音转写会写入这里；也可以粘贴文字记录"
-                      value={meeting.transcript}
-                      onChange={(transcript) => onChange({ ...meeting, transcript })}
-                      placeholder="转写完成后显示在这里"
-                    />
-                  )}
-                  {activeTab === "speakers" &&
-                    (speakerSegments.length > 0 ? (
-                      <SpeakerTimeline
-                        segments={meeting.speakerSegments}
-                        currentMs={currentMs}
-                        onSeek={(ms) =>
-                          setSeekRequest({ time: ms / 1000, nonce: Date.now() })
-                        }
-                      />
-                    ) : (
-                      <div className="tab-panel-empty">
-                        转写并区分说话人后，这里会显示带发言人的时间线。
-                      </div>
-                    ))}
-                  {activeTab === "tasks" && (
-                    <div className="meeting-editor">
-                      <EditorField
-                        label="决策与共识"
-                        hint="只保留明确决定；不确定项会标记待确认"
-                        value={meeting.decisions}
-                        onChange={(decisions) => onChange({ ...meeting, decisions })}
-                        placeholder="例如：周五前交付初稿"
-                      />
-                      <div>
-                        <div className="section-heading">
-                          <h3>本会议待办</h3>
-                          <button
-                            className="icon-btn"
-                            title="添加待办"
-                            onClick={() => setTaskComposing((v) => !v)}
-                          >
-                            <Plus size={14} />
-                          </button>
-                        </div>
-                        {taskComposing && (
-                          <TaskComposer
-                            autoFocus
-                            onAdd={(title, due) => {
-                              onTask(title, due);
-                              setTaskComposing(false);
-                            }}
-                            onCancel={() => setTaskComposing(false)}
-                          />
-                        )}
-                        {meetingTasks.length > 0 ? (
-                          <section className="task-group">
-                            {meetingTasks.map((task) => (
-                              <TaskRow
-                                key={task.id}
-                                task={task}
-                                onToggle={onToggleTask}
-                                onSave={onSaveTask}
-                                onDelete={onDeleteTask}
-                              />
-                            ))}
-                          </section>
-                        ) : (
-                          <div className="tab-panel-empty">
-                            智能纪要生成后会自动提取行动项到这里。也可以手动添加。
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                  </div>
+                </details>
               </section>
             </div>
           </>
