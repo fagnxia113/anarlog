@@ -1,25 +1,21 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import {
+  CalendarDays,
   Check,
   CheckCircle2,
-  Download,
   ChevronRight,
+  Download,
   House,
   LoaderCircle,
-  Maximize2,
   Mic,
-  Minimize2,
-  MoreHorizontal,
-  RefreshCw,
   Pause,
+  Pencil,
   Play,
   Plus,
-  Pencil,
-  CalendarDays,
+  RefreshCw,
   Search,
   Settings,
   Sparkles,
@@ -30,76 +26,32 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { marked } from "marked";
-import DOMPurify from "dompurify";
-
-type Meeting = {
-  id: string;
-  notebookId: string | null;
-  title: string;
-  startedAt: string;
-  durationSeconds: number;
-  status: string;
-  transcript: string;
-  minutes: string;
-  decisions: string;
-  speakerSegments: string;
-  audioPath: string | null;
-  updatedAt: string;
-  context: string;
-  notes: string;
-};
-type Task = {
-  id: string;
-  title: string;
-  sourceType: string | null;
-  sourceId: string | null;
-  completed: boolean;
-  dueDate: string | null;
-  createdAt: string;
-  origin?: string;
-};
-type Workspace = {
-  meetings: Meeting[];
-  tasks: Task[];
-};
-type AiSettings = {
-  baseUrl: string;
-  analysisModel: string;
-  isConfigured: boolean;
-};
-type LocalAsrStatus = {
-  installed: boolean;
-  runtimeAvailable: boolean;
-  modelSizeMb: number;
-};
-type SpeakerEngineStatus = { installed: boolean; modelsReady: boolean };
-type AsrEngineSettings = {
-  provider: "local" | "cloud";
-  cloudBaseUrl: string;
-  cloudModel: string;
-  cloudKeySaved: boolean;
-};
-type SpeakerSegment = {
-  speaker: string;
-  startMs: number;
-  endMs: number;
-  text: string;
-};
-type AnalysisResult = { meeting: Meeting; tasks: Task[] };
-type View = "home" | "meetings" | "tasks" | "settings";
-type Processing =
-  | "downloading"
-  | "transcribing"
-  | "analyzing"
-  | "renaming"
-  | "installingSpeaker"
-  | "speakerTranscribing"
-  | "importing"
-  | "deleting"
-  | "autoTranscribing"
-  | null;
+import { useEffect, useMemo, useRef, useState } from "react";
+import type {
+  AiSettings,
+  AnalysisResult,
+  AsrEngineSettings,
+  LocalAsrStatus,
+  Meeting,
+  Processing,
+  SpeakerEngineStatus,
+  SpeakerSegment,
+  Task,
+  View,
+  Workspace,
+} from "./types";
+import {
+  EditorField,
+  Empty,
+  IconButton,
+  MarkdownField,
+  ProgressModal,
+  RailItem,
+  StatusDot,
+  stripHtml,
+  TitleBar,
+  UpdateModal,
+} from "./components";
 
 const emptyWorkspace: Workspace = {
   meetings: [],
@@ -953,52 +905,7 @@ export function App() {
   );
 }
 
-function TitleBar() {
-  const appWindow = getCurrentWindow();
-  return (
-    <div className="title-bar" data-tauri-drag-region>
-      <span data-tauri-drag-region>知记 · 本地资料库</span>
-      <div className="window-controls" data-tauri-drag-region="false">
-        <button onClick={() => void appWindow.minimize()} title="最小化">
-          <Minimize2 size={15} />
-        </button>
-        <button onClick={() => void appWindow.toggleMaximize()} title="最大化">
-          <Maximize2 size={14} />
-        </button>
-        <button
-          className="close-window"
-          onClick={() => void appWindow.close()}
-          title="关闭"
-        >
-          <X size={16} />
-        </button>
-      </div>
-    </div>
-  );
-}
 
-function RailItem({
-  active,
-  icon,
-  title,
-  onClick,
-}: {
-  active: boolean;
-  icon: ReactNode;
-  title: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={`rail-item ${active ? "active" : ""}`}
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-    >
-      {icon}
-    </button>
-  );
-}
 
 function Home({
   workspace,
@@ -1784,143 +1691,12 @@ function SpeakerTimeline({
 }
 
 // 状态圆点：根据会议 status 字符串返回对应配色（绿=完成 / 橙=进行中 / 灰=待处理）
-function StatusDot({ status }: { status: string }) {
-  let cls = "neutral";
-  if (status.includes("区分") || status.includes("发言人")) cls = "brand";
-  else if (status.includes("纪要") || status.includes("分析")) cls = "success";
-  else if (status.includes("转写") || status.includes("录音") || status.includes("导入")) cls = "info";
-  return <span className={`status-dot ${cls}`} title={status} />;
-}
-
-// 轻量去除 HTML 标签：智能纪要偶尔会带 <h2>/<p> 等标签，纯文本编辑器下直接剥掉，
-// 避免 <h2>会议纪要</h2> 这类字面显示。不做任何渲染，符合「不硬支持 md/html」的取向。
-const stripHtml = (s: string): string => s.replace(/<[^>]+>/g, "");
 
 
-function EditorField({
-  label,
-  hint,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  hint: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <div className="editor-field">
-      <div>
-        <h3>{label}</h3>
-        <small>{hint}</small>
-      </div>
-      <textarea
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-      />
-    </div>
-  );
-}
 
-function renderMarkdown(source: string): string {
-  if (!source.trim()) return "";
-  // 仅渲染 Markdown；DOMPurify 兜底去除任何残留的 <script>/危险标签
-  const raw = marked.parse(source, { async: false, gfm: true, breaks: true }) as string;
-  return DOMPurify.sanitize(raw);
-}
 
-function MarkdownField({
-  label,
-  hint,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  hint: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-}) {
-  // 默认预览：让 AI 生成的加粗/列表/标题直接可见（用户之前抱怨裸字符）
-  const [mode, setMode] = useState<"preview" | "edit">("preview");
-  const html = useMemo(() => renderMarkdown(value), [value]);
-  return (
-    <div className="editor-field markdown-field">
-      <div className="editor-field-head">
-        <div>
-          <h3>{label}</h3>
-          <small>{hint}</small>
-        </div>
-        <div className="md-toggle" role="group" aria-label="编辑或预览">
-          <button
-            type="button"
-            className={mode === "edit" ? "active" : ""}
-            onClick={() => setMode("edit")}
-          >
-            编辑
-          </button>
-          <button
-            type="button"
-            className={mode === "preview" ? "active" : ""}
-            onClick={() => setMode("preview")}
-          >
-            预览
-          </button>
-        </div>
-      </div>
-      {mode === "edit" ? (
-        <textarea
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={placeholder}
-        />
-      ) : value.trim() ? (
-        <div
-          className="markdown-body"
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-      ) : (
-        <div className="tab-panel-empty">{placeholder}</div>
-      )}
-    </div>
-  );
-}
 
-function IconButton({
-  icon: Icon,
-  label,
-  onClick,
-  disabled,
-  danger,
-  primary,
-  loading,
-  size = 16,
-}: {
-  icon: typeof Check;
-  label: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  danger?: boolean;
-  primary?: boolean;
-  loading?: boolean;
-  size?: number;
-}) {
-  return (
-    <button
-      className={`icon-btn${danger ? " icon-danger" : ""}${primary ? " primary" : ""}`}
-      onClick={onClick}
-      disabled={disabled}
-      title={label}
-      aria-label={label}
-    >
-      {loading ? <LoaderCircle className="spin" size={size} /> : <Icon size={size} />}
-    </button>
-  );
-}
+
 
 function formatDue(d: string) {
   const parts = d.split("-");
@@ -2492,112 +2268,5 @@ function SettingsView({
   );
 }
 
-function UpdateModal({
-  version,
-  state,
-  progress,
-  onInstall,
-  onDismiss,
-}: {
-  version: string;
-  state: "available" | "downloading" | "error";
-  progress: number;
-  onInstall: () => void;
-  onDismiss: () => void;
-}) {
-  return (
-    <div className="modal-overlay" onClick={onDismiss}>
-      <div className="modal update-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <span className="round-icon accent">
-            <Download size={19} />
-          </span>
-          <button className="icon-button" onClick={onDismiss} title="关闭">
-            <X size={16} />
-          </button>
-        </div>
-        <h2>发现新版本 {version}</h2>
-        <p>已从 GitHub 下载安装包并完成签名校验，安装后重启即可完成升级。</p>
-        {state === "downloading" ? (
-          <div className="update-progress">
-            <div className="progress-bar">
-              <div style={{ width: `${progress}%` }} />
-            </div>
-            <small>正在下载并安装… {progress}%</small>
-          </div>
-        ) : (
-          <div className="modal-actions">
-            <button className="secondary-button" onClick={onDismiss}>
-              稍后
-            </button>
-            <button
-              className="primary-button"
-              onClick={onInstall}
-              disabled={state === "error"}
-            >
-              <Download size={16} />
-              下载并安装
-            </button>
-          </div>
-        )}
-        {state === "error" && (
-          <small className="runtime-warning">
-            更新失败，请稍后重试，或去 GitHub 下载安装包。
-          </small>
-        )}
-      </div>
-    </div>
-  );
-}
 
-const PROCESSING_LABELS: Record<Exclude<Processing, null>, string> = {
-  downloading: "正在下载本地语音模型…",
-  transcribing: "正在本地语音转写…",
-  analyzing: "AI 正在生成智能纪要…",
-  renaming: "AI 正在重命名会议…",
-  installingSpeaker: "正在安装说话人分离引擎…",
-  speakerTranscribing: "正在转写并区分说话人…",
-  importing: "正在导入录音…",
-  deleting: "正在删除会议…",
-  autoTranscribing: "录音已保存，正在本地转写…",
-};
 
-function ProgressModal({
-  stage,
-  onCancel,
-}: {
-  stage: Exclude<Processing, null>;
-  onCancel: () => void;
-}) {
-  // 仅本地语音转写（含录音后自动转写）可中途取消：后端会杀掉转写子进程
-  const cancelable = stage === "transcribing" || stage === "autoTranscribing";
-  return (
-    <div className="modal-overlay">
-      <div className="modal progress-modal" role="dialog" aria-modal="true" aria-label="处理中">
-        <div className="progress-modal-body">
-          <LoaderCircle size={26} className="spin" />
-          <div>
-            <h3>{PROCESSING_LABELS[stage]}</h3>
-            <p>处理期间请勿关闭窗口。</p>
-          </div>
-        </div>
-        {cancelable && (
-          <div className="modal-actions">
-            <button className="secondary-button" onClick={onCancel}>
-              取消
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Empty({ label }: { label: string }) {
-  return (
-    <div className="empty-state">
-      <MoreHorizontal size={22} />
-      <p>{label}</p>
-    </div>
-  );
-}
