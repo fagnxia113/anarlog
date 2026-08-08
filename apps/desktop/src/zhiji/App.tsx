@@ -1363,6 +1363,19 @@ function Meetings({
                     <h3>智能纪要</h3>
                     <small>AI 基于转写稿生成的结构化纪要（纯文本，原样保存）</small>
                   </div>
+                  <button
+                    className="pane-action"
+                    onClick={onAnalyze}
+                    disabled={!aiConfigured || !meeting.transcript.trim() || processing !== null}
+                    title="基于当前转写稿重新生成纪要"
+                  >
+                    {processing === "analyzing" ? (
+                      <LoaderCircle className="spin" size={14} />
+                    ) : (
+                      <RefreshCw size={14} />
+                    )}
+                    重新生成
+                  </button>
                 </div>
                 {meeting.minutes.trim() || aiConfigured ? (
                   <EditorField

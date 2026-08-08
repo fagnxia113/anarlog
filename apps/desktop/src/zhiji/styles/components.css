@@ -721,6 +721,23 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   margin-top: var(--space-4);
   align-items: start;
 }
+
+/* 窄窗回退：三栏 → 单列堆叠，取消 sticky 避免多栏重叠 */
+@media (max-width: 1100px) {
+  .meeting-triple {
+    grid-template-columns: 1fr;
+  }
+  .my-notes-pane,
+  .transcript-pane,
+  .minutes-pane {
+    position: static;
+  }
+  .transcript-pane .editor-field textarea,
+  .minutes-pane .editor-field textarea,
+  .my-notes-input {
+    min-height: 280px;
+  }
+}
 .my-notes-pane {
   display: flex;
   flex-direction: column;
@@ -763,6 +780,23 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 .pane-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-strong); }
 .pane-head small { display: block; margin-top: 4px; color: var(--text-faint); font-size: 11px; line-height: 1.5; }
+.pane-action {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-default);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.pane-action:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--border-default); }
+.pane-action:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* 栏内折叠区块（说话人时间线 / 决策待办） */
 .pane-details { border-top: 1px solid var(--border-subtle); background: var(--bg-subtle); }
